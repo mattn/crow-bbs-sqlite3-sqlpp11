@@ -1,0 +1,5 @@
+.clang
+*.db
+*.exe
+*.o
+ddl2cpp
