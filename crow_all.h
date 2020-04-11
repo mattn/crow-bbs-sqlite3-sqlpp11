@@ -1,3 +1,245 @@
+/* 
+ *
+ * TinySHA1 - a header only implementation of the SHA1 algorithm in C++. Based
+ * on the implementation in boost::uuid::details.
+ * 
+ * SHA1 Wikipedia Page: http://en.wikipedia.org/wiki/SHA-1
+ * 
+ * Copyright (c) 2012-22 SAURAV MOHAPATRA <mohaps@gmail.com>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#ifndef _TINY_SHA1_HPP_
+#define _TINY_SHA1_HPP_
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <stdint.h>
+namespace sha1
+{
+	class SHA1
+	{
+	public:
+		typedef uint32_t digest32_t[5];
+		typedef uint8_t digest8_t[20];
+		inline static uint32_t LeftRotate(uint32_t value, size_t count) {
+			return (value << count) ^ (value >> (32-count));
+		}
+		SHA1(){ reset(); }
+		virtual ~SHA1() {}
+		SHA1(const SHA1& s) { *this = s; }
+		const SHA1& operator = (const SHA1& s) {
+			memcpy(m_digest, s.m_digest, 5 * sizeof(uint32_t));
+			memcpy(m_block, s.m_block, 64);
+			m_blockByteIndex = s.m_blockByteIndex;
+			m_byteCount = s.m_byteCount;
+			return *this;
+		}
+		SHA1& reset() {
+			m_digest[0] = 0x67452301;
+			m_digest[1] = 0xEFCDAB89;
+			m_digest[2] = 0x98BADCFE;
+			m_digest[3] = 0x10325476;
+			m_digest[4] = 0xC3D2E1F0;
+			m_blockByteIndex = 0;
+			m_byteCount = 0;
+			return *this;
+		}
+		SHA1& processByte(uint8_t octet) {
+			this->m_block[this->m_blockByteIndex++] = octet;
+			++this->m_byteCount;
+			if(m_blockByteIndex == 64) {
+				this->m_blockByteIndex = 0;
+				processBlock();
+			}
+			return *this;
+		}
+		SHA1& processBlock(const void* const start, const void* const end) {
+			const uint8_t* begin = static_cast<const uint8_t*>(start);
+			const uint8_t* finish = static_cast<const uint8_t*>(end);
+			while(begin != finish) {
+				processByte(*begin);
+				begin++;
+			}
+			return *this;
+		}
+		SHA1& processBytes(const void* const data, size_t len) {
+			const uint8_t* block = static_cast<const uint8_t*>(data);
+			processBlock(block, block + len);
+			return *this;
+		}
+		const uint32_t* getDigest(digest32_t digest) {
+			size_t bitCount = this->m_byteCount * 8;
+			processByte(0x80);
+			if (this->m_blockByteIndex > 56) {
+				while (m_blockByteIndex != 0) {
+					processByte(0);
+				}
+				while (m_blockByteIndex < 56) {
+					processByte(0);
+				}
+			} else {
+				while (m_blockByteIndex < 56) {
+					processByte(0);
+				}
+			}
+			processByte(0);
+			processByte(0);
+			processByte(0);
+			processByte(0);
+			processByte( static_cast<unsigned char>((bitCount>>24) & 0xFF));
+			processByte( static_cast<unsigned char>((bitCount>>16) & 0xFF));
+			processByte( static_cast<unsigned char>((bitCount>>8 ) & 0xFF));
+			processByte( static_cast<unsigned char>((bitCount)     & 0xFF));
+	
+			memcpy(digest, m_digest, 5 * sizeof(uint32_t));
+			return digest;
+		}
+		const uint8_t* getDigestBytes(digest8_t digest) {
+			digest32_t d32;
+			getDigest(d32);
+			size_t di = 0;
+			digest[di++] = ((d32[0] >> 24) & 0xFF);
+			digest[di++] = ((d32[0] >> 16) & 0xFF);
+			digest[di++] = ((d32[0] >> 8) & 0xFF);
+			digest[di++] = ((d32[0]) & 0xFF);
+			
+			digest[di++] = ((d32[1] >> 24) & 0xFF);
+			digest[di++] = ((d32[1] >> 16) & 0xFF);
+			digest[di++] = ((d32[1] >> 8) & 0xFF);
+			digest[di++] = ((d32[1]) & 0xFF);
+			
+			digest[di++] = ((d32[2] >> 24) & 0xFF);
+			digest[di++] = ((d32[2] >> 16) & 0xFF);
+			digest[di++] = ((d32[2] >> 8) & 0xFF);
+			digest[di++] = ((d32[2]) & 0xFF);
+			
+			digest[di++] = ((d32[3] >> 24) & 0xFF);
+			digest[di++] = ((d32[3] >> 16) & 0xFF);
+			digest[di++] = ((d32[3] >> 8) & 0xFF);
+			digest[di++] = ((d32[3]) & 0xFF);
+			
+			digest[di++] = ((d32[4] >> 24) & 0xFF);
+			digest[di++] = ((d32[4] >> 16) & 0xFF);
+			digest[di++] = ((d32[4] >> 8) & 0xFF);
+			digest[di++] = ((d32[4]) & 0xFF);
+			return digest;
+		}
+	
+	protected:
+		void processBlock() {
+			uint32_t w[80];
+			for (size_t i = 0; i < 16; i++) {
+				w[i]  = (m_block[i*4 + 0] << 24);
+				w[i] |= (m_block[i*4 + 1] << 16);
+				w[i] |= (m_block[i*4 + 2] << 8);
+				w[i] |= (m_block[i*4 + 3]);
+			}
+			for (size_t i = 16; i < 80; i++) {
+				w[i] = LeftRotate((w[i-3] ^ w[i-8] ^ w[i-14] ^ w[i-16]), 1);
+			}
+	
+			uint32_t a = m_digest[0];
+			uint32_t b = m_digest[1];
+			uint32_t c = m_digest[2];
+			uint32_t d = m_digest[3];
+			uint32_t e = m_digest[4];
+	
+			for (std::size_t i=0; i<80; ++i) {
+				uint32_t f = 0;
+				uint32_t k = 0;
+	
+				if (i<20) {
+					f = (b & c) | (~b & d);
+					k = 0x5A827999;
+				} else if (i<40) {
+					f = b ^ c ^ d;
+					k = 0x6ED9EBA1;
+				} else if (i<60) {
+					f = (b & c) | (b & d) | (c & d);
+					k = 0x8F1BBCDC;
+				} else {
+					f = b ^ c ^ d;
+					k = 0xCA62C1D6;
+				}
+				uint32_t temp = LeftRotate(a, 5) + f + e + k + w[i];
+				e = d;
+				d = c;
+				c = LeftRotate(b, 30);
+				b = a;
+				a = temp;
+			}
+	
+			m_digest[0] += a;
+			m_digest[1] += b;
+			m_digest[2] += c;
+			m_digest[3] += d;
+			m_digest[4] += e;
+		}
+	private:
+		digest32_t m_digest;
+		uint8_t m_block[64];
+		size_t m_blockByteIndex;
+		size_t m_byteCount;
+	};
+}
+#endif
+
+
+
+#pragma once
+// settings for crow
+// TODO - replace with runtime config. libucl?
+
+/* #ifdef - enables debug mode */
+//#define CROW_ENABLE_DEBUG
+
+/* #ifdef - enables logging */
+#define CROW_ENABLE_LOGGING
+
+/* #ifdef - enables ssl */
+//#define CROW_ENABLE_SSL
+
+/* #define - specifies log level */
+/*
+    Debug       = 0
+    Info        = 1
+    Warning     = 2
+    Error       = 3
+    Critical    = 4
+
+    default to INFO
+*/
+#ifndef CROW_LOG_LEVEL
+#define CROW_LOG_LEVEL 1
+#endif
+
+
+// compiler flags
+#if __cplusplus >= 201402L
+#define CROW_CAN_USE_CPP14
+#endif
+
+#if defined(_MSC_VER)
+#if _MSC_VER < 1900
+#define CROW_MSVC_WORKAROUND
+#define constexpr const
+#define noexcept throw()
+#endif
+#endif
+
+
+
 #pragma once
 
 #include <cstdint>
@@ -6,6 +248,10 @@
 #include <type_traits>
 #include <cstring>
 #include <functional>
+#include <string>
+
+
+
 
 namespace crow
 {
@@ -14,7 +260,7 @@ namespace crow
 #ifndef CROW_MSVC_WORKAROUND
         struct OutOfRange
         {
-            OutOfRange(unsigned pos, unsigned length) {}
+            OutOfRange(unsigned /*pos*/, unsigned /*length*/) {}
         };
         constexpr unsigned requires_in_range( unsigned i, unsigned len )
         {
@@ -129,7 +375,7 @@ template <> \
 struct parameter_tag<t> \
 { \
     static const int value = i; \
-};
+}
         CROW_INTERNAL_PARAMETER_TAG(int, 1);
         CROW_INTERNAL_PARAMETER_TAG(char, 1);
         CROW_INTERNAL_PARAMETER_TAG(short, 1);
@@ -499,55 +745,66 @@ template <typename F, typename Set>
             using arg = typename std::tuple_element<i, std::tuple<Args...>>::type;
         };
 
+        inline static std::string base64encode(const char* data, size_t size, const char* key = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+        {
+            std::string ret;
+            ret.resize((size+2) / 3 * 4);
+            auto it = ret.begin();
+            while(size >= 3)
+            {
+                *it++ = key[(((unsigned char)*data)&0xFC)>>2];
+                unsigned char h = (((unsigned char)*data++) & 0x03) << 4;
+                *it++ = key[h|((((unsigned char)*data)&0xF0)>>4)];
+                h = (((unsigned char)*data++) & 0x0F) << 2;
+                *it++ = key[h|((((unsigned char)*data)&0xC0)>>6)];
+                *it++ = key[((unsigned char)*data++)&0x3F];
+
+                size -= 3;
+            }
+            if (size == 1)
+            {
+                *it++ = key[(((unsigned char)*data)&0xFC)>>2];
+                unsigned char h = (((unsigned char)*data++) & 0x03) << 4;
+                *it++ = key[h];
+                *it++ = '=';
+                *it++ = '=';
+            }
+            else if (size == 2)
+            {
+                *it++ = key[(((unsigned char)*data)&0xFC)>>2];
+                unsigned char h = (((unsigned char)*data++) & 0x03) << 4;
+                *it++ = key[h|((((unsigned char)*data)&0xF0)>>4)];
+                h = (((unsigned char)*data++) & 0x0F) << 2;
+                *it++ = key[h];
+                *it++ = '=';
+            }
+            return ret;
+        }
+
+        inline static std::string base64encode_urlsafe(const char* data, size_t size)
+        {
+            return base64encode(data, size, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
+        }
+
+
     } // namespace utility
 }
 
 
 
 #pragma once
-// settings for crow
-// TODO - replace with runtime config. libucl?
-
-/* #ifdef - enables debug mode */
-#define CROW_ENABLE_DEBUG
-
-/* #ifdef - enables logging */
-#define CROW_ENABLE_LOGGING
-
-/* #ifdef - enables SSL */
-//#define CROW_ENABLE_SSL
-
-/* #define - specifies log level */
-/*
-    DEBUG       = 0
-    INFO        = 1
-    WARNING     = 2
-    ERROR       = 3
-    CRITICAL    = 4
-
-    default to INFO
-*/
-#define CROW_LOG_LEVEL 1
-
-
-// compiler flags
-#if __cplusplus >= 201402L
-#define CROW_CAN_USE_CPP14
-#endif
-
-#if defined(_MSC_VER)
-#if _MSC_VER < 1900
-#define CROW_MSVC_WORKAROUND
-#define constexpr const
-#define noexcept throw()
-#endif
-#endif
-
-
-
-#pragma once
 #include <boost/asio.hpp>
+#ifdef CROW_ENABLE_SSL
+#include <boost/asio/ssl.hpp>
+#endif
 
+
+
+#if BOOST_VERSION >= 107000
+#define GET_IO_SERVICE(s) ((boost::asio::io_context&)(s)->get_executor().context())
+#else
+#define GET_IO_SERVICE(s) ((s)->get_io_service())
+#endif
 
 namespace crow
 {
@@ -560,6 +817,11 @@ namespace crow
         SocketAdaptor(boost::asio::io_service& io_service, context*)
             : socket_(io_service)
         {
+        }
+
+        boost::asio::io_service& get_io_service()
+        {
+            return GET_IO_SERVICE(&socket_);
         }
 
         tcp::socket& raw_socket()
@@ -584,7 +846,8 @@ namespace crow
 
         void close()
         {
-            socket_.close();
+            boost::system::error_code ec;
+            socket_.close(ec);
         }
 
         template <typename F> 
@@ -600,20 +863,21 @@ namespace crow
     struct SSLAdaptor
     {
         using context = boost::asio::ssl::context;
+        using ssl_socket_t = boost::asio::ssl::stream<tcp::socket>;
         SSLAdaptor(boost::asio::io_service& io_service, context* ctx)
-            : ssl_socket_(io_service, *ctx)
+            : ssl_socket_(new ssl_socket_t(io_service, *ctx))
         {
         }
 
         boost::asio::ssl::stream<tcp::socket>& socket()
         {
-            return ssl_socket_;
+            return *ssl_socket_;
         }
 
         tcp::socket::lowest_layer_type&
         raw_socket()
         {
-            return ssl_socket_.lowest_layer();
+            return ssl_socket_->lowest_layer();
         }
 
         tcp::endpoint remote_endpoint()
@@ -628,19 +892,25 @@ namespace crow
 
         void close()
         {
-            raw_socket().close();
+            boost::system::error_code ec;
+            raw_socket().close(ec);
+        }
+
+        boost::asio::io_service& get_io_service()
+        {
+            return GET_IO_SERVICE(raw_socket());
         }
 
         template <typename F> 
         void start(F f)
         {
-            ssl_socket_.async_handshake(boost::asio::ssl::stream_base::server,
+            ssl_socket_->async_handshake(boost::asio::ssl::stream_base::server,
                     [f](const boost::system::error_code& ec) {
                         f(ec);
                     });
         }
 
-        boost::asio::ssl::stream<tcp::socket> ssl_socket_;
+        std::unique_ptr<boost::asio::ssl::stream<tcp::socket>> ssl_socket_;
     };
 #endif
 }
@@ -653,8 +923,12 @@ namespace crow
 #include <string.h>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <iostream>
+#include <boost/optional.hpp>
 
+namespace crow
+{
 // ----------------------------------------------------------------------------
 // qs_parse (modified)
 // https://github.com/bartgrantham/qs_parse
@@ -844,6 +1118,48 @@ inline char * qs_k2v(const char * key, char * const * qs_kv, int qs_kv_size, int
     return NULL;
 }
 
+inline boost::optional<std::pair<std::string, std::string>> qs_dict_name2kv(const char * dict_name, char * const * qs_kv, int qs_kv_size, int nth = 0)
+{
+    int i;
+    size_t name_len, skip_to_eq, skip_to_brace_open, skip_to_brace_close;
+
+    name_len = strlen(dict_name);
+
+#ifdef _qsSORTING
+// TODO: binary search for key in the sorted qs_kv
+#else  // _qsSORTING
+    for(i=0; i<qs_kv_size; i++)
+    {
+        if ( strncmp(dict_name, qs_kv[i], name_len) == 0 )
+        {
+            skip_to_eq = strcspn(qs_kv[i], "=");
+            if ( qs_kv[i][skip_to_eq] == '=' )
+                skip_to_eq++;
+            skip_to_brace_open = strcspn(qs_kv[i], "[");
+            if ( qs_kv[i][skip_to_brace_open] == '[' )
+                skip_to_brace_open++;
+            skip_to_brace_close = strcspn(qs_kv[i], "]");
+
+            if ( skip_to_brace_open <= skip_to_brace_close &&
+                 skip_to_brace_open > 0 &&
+                 skip_to_brace_close > 0 &&
+                 nth == 0 )
+            {
+                auto key = std::string(qs_kv[i] + skip_to_brace_open, skip_to_brace_close - skip_to_brace_open);
+                auto value = std::string(qs_kv[i] + skip_to_eq);
+                return boost::make_optional(std::make_pair(key, value));
+            }
+            else
+            {
+                --nth;
+            }
+        }
+    }
+#endif  // _qsSORTING
+
+    return boost::none;
+}
+
 
 inline char * qs_scanvalue(const char * key, const char * qs, char * val, size_t val_len)
 {
@@ -869,8 +1185,12 @@ inline char * qs_scanvalue(const char * key, const char * qs, char * val, size_t
     {
         qs++;
         i = strcspn(qs, "&=#");
-        strncpy(val, qs, (val_len-1)<(i+1) ? (val_len-1) : (i+1));
-        qs_decode(val);
+#ifdef _MSC_VER
+        strncpy_s(val, val_len, qs, (val_len - 1)<(i + 1) ? (val_len - 1) : (i + 1));
+#else
+        strncpy(val, qs, (val_len - 1)<(i + 1) ? (val_len - 1) : (i + 1));
+#endif
+		qs_decode(val);
     }
     else
     {
@@ -879,6 +1199,7 @@ inline char * qs_scanvalue(const char * key, const char * qs, char * val, size_t
     }
 
     return val;
+}
 }
 // ----------------------------------------------------------------------------
 
@@ -982,6 +1303,20 @@ namespace crow
             return ret;
         }
 
+        std::unordered_map<std::string, std::string> get_dict (const std::string& name) const
+        {
+            std::unordered_map<std::string, std::string> ret;
+
+            int count = 0;
+            while(1)
+            {
+                if (auto element = qs_dict_name2kv(name.c_str(), key_value_pairs_.data(), key_value_pairs_.size(), count++))
+                    ret.insert(*element);
+                else
+                    break;
+            }
+            return ret;
+        }
 
     private:
         std::string url_;
@@ -1002,18 +1337,25 @@ namespace crow
 #include <sstream>
 
 
-#undef ERROR
-#undef DELETE
+
 
 namespace crow
 {
     enum class LogLevel
     {
-        DEBUG,
+#ifndef ERROR
+        DEBUG = 0,
         INFO,
         WARNING,
         ERROR,
         CRITICAL,
+#endif
+
+        Debug = 0,
+        Info,
+        Warning,
+        Error,
+        Critical,
     };
 
     class ILogHandler {
@@ -1023,7 +1365,7 @@ namespace crow
 
     class CerrLogHandler : public ILogHandler {
         public:
-            void log(std::string message, LogLevel level) override {
+            void log(std::string message, LogLevel /*level*/) override {
                 std::cerr << message;
             }
     };
@@ -1039,7 +1381,7 @@ namespace crow
 
                 tm my_tm;
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) or defined(__MINGW32__)
                 gmtime_s(&my_tm, &t);
 #else
                 gmtime_r(&t, &my_tm);
@@ -1113,20 +1455,20 @@ namespace crow
 }
 
 #define CROW_LOG_CRITICAL   \
-        if (crow::logger::get_current_log_level() <= crow::LogLevel::CRITICAL) \
-            crow::logger("CRITICAL", crow::LogLevel::CRITICAL)
+        if (crow::logger::get_current_log_level() <= crow::LogLevel::Critical) \
+            crow::logger("CRITICAL", crow::LogLevel::Critical)
 #define CROW_LOG_ERROR      \
-        if (crow::logger::get_current_log_level() <= crow::LogLevel::ERROR) \
-            crow::logger("ERROR   ", crow::LogLevel::ERROR)
+        if (crow::logger::get_current_log_level() <= crow::LogLevel::Error) \
+            crow::logger("ERROR   ", crow::LogLevel::Error)
 #define CROW_LOG_WARNING    \
-        if (crow::logger::get_current_log_level() <= crow::LogLevel::WARNING) \
-            crow::logger("WARNING ", crow::LogLevel::WARNING)
+        if (crow::logger::get_current_log_level() <= crow::LogLevel::Warning) \
+            crow::logger("WARNING ", crow::LogLevel::Warning)
 #define CROW_LOG_INFO       \
-        if (crow::logger::get_current_log_level() <= crow::LogLevel::INFO) \
-            crow::logger("INFO    ", crow::LogLevel::INFO)
+        if (crow::logger::get_current_log_level() <= crow::LogLevel::Info) \
+            crow::logger("INFO    ", crow::LogLevel::Info)
 #define CROW_LOG_DEBUG      \
-        if (crow::logger::get_current_log_level() <= crow::LogLevel::DEBUG) \
-            crow::logger("DEBUG   ", crow::LogLevel::DEBUG)
+        if (crow::logger::get_current_log_level() <= crow::LogLevel::Debug) \
+            crow::logger("DEBUG   ", crow::LogLevel::Debug)
 
 
 
@@ -1144,6 +1486,9 @@ namespace crow
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/operators.hpp>
 #include <vector>
+
+
+
 
 #if defined(__GNUG__) || defined(__clang__)
 #define crow_json_likely(x) __builtin_expect(x, 1)
@@ -1215,6 +1560,25 @@ namespace crow
             Object,
         };
 
+        inline const char* get_type_str(type t) {
+            switch(t){
+                case type::Number: return "Number";
+                case type::False: return "False";
+                case type::True: return "True";
+                case type::List: return "List";
+                case type::String: return "String";
+                case type::Object: return "Object";
+                default: return "Unknown";
+            }
+        }
+
+        enum class num_type : char {
+            Signed_integer,
+            Unsigned_integer,
+            Floating_point,
+            Null
+        };
+
         class rvalue;
         rvalue load(const char* data, size_t size);
 
@@ -1252,6 +1616,8 @@ namespace crow
                     s_ = r.s_;
                     e_ = r.e_;
                     owned_ = r.owned_;
+                    if (r.owned_)
+                        r.owned_ = 0;
                     return *this;
                 }
 
@@ -1288,6 +1654,7 @@ namespace crow
                 void force(char* s, uint32_t length)
                 {
                     s_ = s;
+                    e_ = s_ + length;
                     owned_ = 1;
                 }
                 friend rvalue crow::json::load(const char* data, size_t size);
@@ -1333,13 +1700,16 @@ namespace crow
                 : start_{s},
                 end_{e},
                 t_{t}
-            {}
+            {
+                determine_num_type();
+            }
 
             rvalue(const rvalue& r)
             : start_(r.start_),
                 end_(r.end_),
                 key_(r.key_),
                 t_(r.t_),
+                nt_(r.nt_),
                 option_(r.option_)
             {
                 copy_l(r);
@@ -1355,9 +1725,10 @@ namespace crow
                 start_ = r.start_;
                 end_ = r.end_;
                 key_ = r.key_;
-                copy_l(r);
                 t_ = r.t_;
+                nt_ = r.nt_;
                 option_ = r.option_;
+                copy_l(r);
                 return *this;
             }
             rvalue& operator = (rvalue&& r) noexcept
@@ -1369,6 +1740,7 @@ namespace crow
                 lsize_ = r.lsize_;
                 lremain_ = r.lremain_;
                 t_ = r.t_;
+                nt_ = r.nt_;
                 option_ = r.option_;
                 return *this;
             }
@@ -1381,6 +1753,11 @@ namespace crow
             explicit operator int64_t() const
             {
                 return i();
+            }
+
+            explicit operator uint64_t() const
+            {
+                return u();
             }
 
             explicit operator int() const
@@ -1399,13 +1776,45 @@ namespace crow
                 return t_;
             }
 
+            num_type nt() const
+            {
+#ifndef CROW_JSON_NO_ERROR_CHECK
+                if (option_ & error_bit)
+                {
+                    throw std::runtime_error("invalid json object");
+                }
+#endif
+                return nt_;
+            }
+
             int64_t i() const
             {
 #ifndef CROW_JSON_NO_ERROR_CHECK
-                if (t() != type::Number)
-                    throw std::runtime_error("value is not number");
+                switch (t()) {
+                    case type::Number:
+                    case type::String:
+                        return boost::lexical_cast<int64_t>(start_, end_-start_);
+                    default:
+                        const std::string msg = "expected number, got: "
+                            + std::string(get_type_str(t()));
+                        throw std::runtime_error(msg);
+                }
 #endif
                 return boost::lexical_cast<int64_t>(start_, end_-start_);
+            }
+
+            uint64_t u() const
+            {
+#ifndef CROW_JSON_NO_ERROR_CHECK
+                switch (t()) {
+                    case type::Number:
+                    case type::String:
+                        return boost::lexical_cast<uint64_t>(start_, end_-start_);
+                    default:
+                        throw std::runtime_error(std::string("expected number, got: ") + get_type_str(t()));
+                }
+#endif
+                return boost::lexical_cast<uint64_t>(start_, end_-start_);
             }
 
             double d() const
@@ -1682,6 +2091,28 @@ namespace crow
                 lremain_ --;
             }
 
+            // determines num_type from the string
+            void determine_num_type()
+            {
+                if (t_ != type::Number)
+                {
+                    nt_ = num_type::Null;
+                    return;
+                }
+
+                const std::size_t len = end_ - start_;
+                const bool has_minus = std::memchr(start_, '-', len) != nullptr;
+                const bool has_e = std::memchr(start_, 'e', len) != nullptr
+                                || std::memchr(start_, 'E', len) != nullptr;
+                const bool has_dec_sep = std::memchr(start_, '.', len) != nullptr;
+                if (has_dec_sep || has_e)
+                  nt_ = num_type::Floating_point;
+                else if (has_minus)
+                  nt_ = num_type::Signed_integer;
+                else
+                  nt_ = num_type::Unsigned_integer;
+            }
+
             mutable char* start_;
             mutable char* end_;
             detail::r_string key_;
@@ -1689,6 +2120,7 @@ namespace crow
             uint32_t lsize_;
             uint16_t lremain_;
             type t_;
+            num_type nt_{num_type::Null};
             mutable uint8_t option_{0};
 
             friend rvalue load_nocopy_internal(char* data, size_t size);
@@ -1701,7 +2133,17 @@ namespace crow
                 case type::Null: os << "null"; break;
                 case type::False: os << "false"; break;
                 case type::True: os << "true"; break;
-                case type::Number: os << r.d(); break;
+                case type::Number:
+                    {
+                        switch (r.nt())
+                        {
+                        case num_type::Floating_point: os << r.d(); break;
+                        case num_type::Signed_integer: os << r.i(); break;
+                        case num_type::Unsigned_integer: os << r.u(); break;
+                        case num_type::Null: throw std::runtime_error("Number with num_type Null");
+                        }
+                    }
+                    break;
                 case type::String: os << '"' << r.s() << '"'; break;
                 case type::List: 
                     {
@@ -1785,7 +2227,7 @@ namespace crow
             //static const char* escaped = "\"\\/\b\f\n\r\t";
             struct Parser
             {
-                Parser(char* data, size_t size)
+                Parser(char* data, size_t /*size*/)
                     : data(data)
                 {
                 }
@@ -2183,7 +2625,12 @@ namespace crow
             type t() const { return t_; }
         private:
             type t_{type::Null};
-            double d {};
+            num_type nt{num_type::Null};
+            union {
+              double d;
+              int64_t si;
+              uint64_t ui {};
+            } num;
             std::string s;
             std::unique_ptr<std::vector<wvalue>> l;
             std::unique_ptr<std::unordered_map<std::string, wvalue>> o;
@@ -2201,23 +2648,28 @@ namespace crow
                     case type::True:
                         return;
                     case type::Number:
-                        d = r.d();
+                        nt = r.nt();
+                        if (nt == num_type::Floating_point)
+                          num.d = r.d();
+                        else if (nt == num_type::Signed_integer)
+                          num.si = r.i();
+                        else
+                          num.ui = r.u();
                         return;
                     case type::String:
                         s = r.s();
                         return;
                     case type::List:
-                        l = std::move(std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{}));
+                        l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
                         l->reserve(r.size());
                         for(auto it = r.begin(); it != r.end(); ++it)
                             l->emplace_back(*it);
                         return;
                     case type::Object:
-                        o = std::move(
-                            std::unique_ptr<
+                        o = std::unique_ptr<
                                     std::unordered_map<std::string, wvalue>
                                 >(
-                                new std::unordered_map<std::string, wvalue>{}));
+                                new std::unordered_map<std::string, wvalue>{});
                         for(auto it = r.begin(); it != r.end(); ++it)
                             o->emplace(it->key(), *it);
                         return;
@@ -2232,7 +2684,7 @@ namespace crow
             wvalue& operator = (wvalue&& r)
             {
                 t_ = r.t_;
-                d = r.d;
+                num = r.num;
                 s = std::move(r.s);
                 l = std::move(r.l);
                 o = std::move(r.o);
@@ -2241,9 +2693,7 @@ namespace crow
 
             void clear()
             {
-                t_ = type::Null;
-                l.reset();
-                o.reset();
+                reset();
             }
 
             void reset()
@@ -2272,7 +2722,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = value;
+                num.d = value;
+                nt = num_type::Floating_point;
                 return *this;
             }
 
@@ -2280,7 +2731,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.ui = value;
+                nt = num_type::Unsigned_integer;
                 return *this;
             }
 
@@ -2288,7 +2740,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.si = value;
+                nt = num_type::Signed_integer;
                 return *this;
             }
 
@@ -2296,7 +2749,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.si = value;
+                nt = num_type::Signed_integer;
                 return *this;
             }
 
@@ -2304,7 +2758,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.si = value;
+                nt = num_type::Signed_integer;
                 return *this;
             }
 
@@ -2312,7 +2767,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.si = value;
+                nt = num_type::Signed_integer;
                 return *this;
             }
 
@@ -2320,7 +2776,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.ui = value;
+                nt = num_type::Unsigned_integer;
                 return *this;
             }
 
@@ -2328,7 +2785,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.ui = value;
+                nt = num_type::Unsigned_integer;
                 return *this;
             }
 
@@ -2336,7 +2794,8 @@ namespace crow
             {
                 reset();
                 t_ = type::Number;
-                d = (double)value;
+                num.ui = value;
+                nt = num_type::Unsigned_integer;
                 return *this;
             }
 
@@ -2356,6 +2815,23 @@ namespace crow
                 return *this;
             }
 
+            wvalue& operator=(std::vector<wvalue>&& v)
+            {
+                if (t_ != type::List)
+                    reset();
+                t_ = type::List;
+                if (!l)
+                    l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
+                l->clear();
+                l->resize(v.size());
+                size_t idx = 0;
+                for(auto& x:v)
+                {
+                    (*l)[idx++] = std::move(x);
+                }
+                return *this;
+            }
+
             template <typename T>
             wvalue& operator=(const std::vector<T>& v)
             {
@@ -2363,7 +2839,7 @@ namespace crow
                     reset();
                 t_ = type::List;
                 if (!l)
-                    l = std::move(std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{}));
+                    l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
                 l->clear();
                 l->resize(v.size());
                 size_t idx = 0;
@@ -2380,7 +2856,7 @@ namespace crow
                     reset();
                 t_ = type::List;
                 if (!l)
-                    l = std::move(std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{}));
+                    l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
                 if (l->size() < index+1)
                     l->resize(index+1);
                 return (*l)[index];
@@ -2401,12 +2877,23 @@ namespace crow
                     reset();
                 t_ = type::Object;
                 if (!o)
-                    o = std::move(
-                        std::unique_ptr<
+                    o = std::unique_ptr<
                                 std::unordered_map<std::string, wvalue>
                             >(
-                            new std::unordered_map<std::string, wvalue>{}));
+                            new std::unordered_map<std::string, wvalue>{});
                 return (*o)[str];
+            }
+
+            std::vector<std::string> keys() const 
+            {
+                if (t_ != type::Object) 
+                    return {};
+                std::vector<std::string> result;
+                for (auto& kv:*o) 
+                {
+                    result.push_back(kv.first);
+                }
+                return result;
             }
 
             size_t estimate_length() const
@@ -2449,7 +2936,6 @@ namespace crow
                 return 1;
             }
 
-
             friend void dump_internal(const wvalue& v, std::string& out);
             friend std::string dump(const wvalue& v);
         };
@@ -2469,9 +2955,26 @@ namespace crow
                 case type::True: out += "true"; break;
                 case type::Number: 
                     {
-                        char outbuf[128];
-                        sprintf(outbuf, "%g", v.d);
-                        out += outbuf;
+                        if (v.nt == num_type::Floating_point)
+                        {
+#ifdef _MSC_VER
+#define MSC_COMPATIBLE_SPRINTF(BUFFER_PTR, FORMAT_PTR, VALUE) sprintf_s((BUFFER_PTR), 128, (FORMAT_PTR), (VALUE))
+#else
+#define MSC_COMPATIBLE_SPRINTF(BUFFER_PTR, FORMAT_PTR, VALUE) sprintf((BUFFER_PTR), (FORMAT_PTR), (VALUE))
+#endif
+                            char outbuf[128];
+                            MSC_COMPATIBLE_SPRINTF(outbuf, "%g", v.num.d);
+                            out += outbuf;
+#undef MSC_COMPATIBLE_SPRINTF
+                        }
+                        else if (v.nt == num_type::Signed_integer)
+                        {
+                            out += std::to_string(v.num.si);
+                        }
+                        else
+                        {
+                            out += std::to_string(v.num.ui);
+                        }
                     }
                     break;
                 case type::String: dump_string(v.s, out); break;
@@ -3060,7 +3563,11 @@ namespace crow
 
         inline std::string default_loader(const std::string& filename)
         {
-            std::ifstream inf(detail::get_template_base_directory_ref() + filename);
+            std::string path = detail::get_template_base_directory_ref();
+            if (!(path.back() == '/' || path.back() == '\\'))
+                path += '/';
+            path += filename;
+            std::ifstream inf(path);
             if (!inf)
                 return {};
             return {std::istreambuf_iterator<char>(inf), std::istreambuf_iterator<char>()};
@@ -3089,6 +3596,11 @@ namespace crow
         inline void set_loader(std::function<std::string(std::string)> loader)
         {
             detail::get_loader_ref() = std::move(loader);
+        }
+
+        inline std::string load_text(const std::string& filename)
+        {
+            return detail::get_loader_ref()(filename);
         }
 
         inline template_t load(const std::string& filename)
@@ -3121,16 +3633,16 @@ namespace crow
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
-#ifndef http_parser_h
-#define http_parser_h
+#ifndef CROW_http_parser_h
+#define CROW_http_parser_h
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Also update SONAME in the Makefile whenever you change these. */
-#define HTTP_PARSER_VERSION_MAJOR 2
-#define HTTP_PARSER_VERSION_MINOR 3
-#define HTTP_PARSER_VERSION_PATCH 0
+#define CROW_HTTP_PARSER_VERSION_MAJOR 2
+#define CROW_HTTP_PARSER_VERSION_MINOR 3
+#define CROW_HTTP_PARSER_VERSION_PATCH 0
 
 #include <sys/types.h>
 #if defined(_WIN32) && !defined(__MINGW32__) && (!defined(_MSC_VER) || _MSC_VER<1600)
@@ -3151,8 +3663,8 @@ typedef unsigned __int64 uint64_t;
 /* Compile with -DHTTP_PARSER_STRICT=0 to make less checks, but run
  * faster
  */
-#ifndef HTTP_PARSER_STRICT
-# define HTTP_PARSER_STRICT 1
+#ifndef CROW_HTTP_PARSER_STRICT
+# define CROW_HTTP_PARSER_STRICT 1
 #endif
 
 /* Maximium header size allowed. If the macro is not defined
@@ -3162,8 +3674,8 @@ typedef unsigned __int64 uint64_t;
  * the effective limit on the size of the header, define the macro
  * to a very large number (e.g. -DHTTP_MAX_HEADER_SIZE=0x7fffffff)
  */
-#ifndef HTTP_MAX_HEADER_SIZE
-# define HTTP_MAX_HEADER_SIZE (80*1024)
+#ifndef CROW_HTTP_MAX_HEADER_SIZE
+# define CROW_HTTP_MAX_HEADER_SIZE (80*1024)
 #endif
 
 typedef struct http_parser http_parser;
@@ -3188,46 +3700,46 @@ typedef int (*http_cb) (http_parser*);
 
 
 /* Request Methods */
-#define HTTP_METHOD_MAP(XX)         \
-  XX(0,  DELETE,      DELETE)       \
-  XX(1,  GET,         GET)          \
-  XX(2,  HEAD,        HEAD)         \
-  XX(3,  POST,        POST)         \
-  XX(4,  PUT,         PUT)          \
+#define CROW_HTTP_METHOD_MAP(CROW_XX)         \
+  CROW_XX(0,  DELETE,      DELETE)       \
+  CROW_XX(1,  GET,         GET)          \
+  CROW_XX(2,  HEAD,        HEAD)         \
+  CROW_XX(3,  POST,        POST)         \
+  CROW_XX(4,  PUT,         PUT)          \
   /* pathological */                \
-  XX(5,  CONNECT,     CONNECT)      \
-  XX(6,  OPTIONS,     OPTIONS)      \
-  XX(7,  TRACE,       TRACE)        \
-  /* webdav */                      \
-  XX(8,  COPY,        COPY)         \
-  XX(9,  LOCK,        LOCK)         \
-  XX(10, MKCOL,       MKCOL)        \
-  XX(11, MOVE,        MOVE)         \
-  XX(12, PROPFIND,    PROPFIND)     \
-  XX(13, PROPPATCH,   PROPPATCH)    \
-  XX(14, SEARCH,      SEARCH)       \
-  XX(15, UNLOCK,      UNLOCK)       \
-  /* subversion */                  \
-  XX(16, REPORT,      REPORT)       \
-  XX(17, MKACTIVITY,  MKACTIVITY)   \
-  XX(18, CHECKOUT,    CHECKOUT)     \
-  XX(19, MERGE,       MERGE)        \
-  /* upnp */                        \
-  XX(20, MSEARCH,     M-SEARCH)     \
-  XX(21, NOTIFY,      NOTIFY)       \
-  XX(22, SUBSCRIBE,   SUBSCRIBE)    \
-  XX(23, UNSUBSCRIBE, UNSUBSCRIBE)  \
+  CROW_XX(5,  CONNECT,     CONNECT)      \
+  CROW_XX(6,  OPTIONS,     OPTIONS)      \
+  CROW_XX(7,  TRACE,       TRACE)        \
   /* RFC-5789 */                    \
-  XX(24, PATCH,       PATCH)        \
-  XX(25, PURGE,       PURGE)        \
+  CROW_XX(8, PATCH,       PATCH)        \
+  CROW_XX(9, PURGE,       PURGE)        \
+  /* webdav */                      \
+  CROW_XX(10,  COPY,        COPY)         \
+  CROW_XX(11,  LOCK,        LOCK)         \
+  CROW_XX(12, MKCOL,       MKCOL)        \
+  CROW_XX(13, MOVE,        MOVE)         \
+  CROW_XX(14, PROPFIND,    PROPFIND)     \
+  CROW_XX(15, PROPPATCH,   PROPPATCH)    \
+  CROW_XX(16, SEARCH,      SEARCH)       \
+  CROW_XX(17, UNLOCK,      UNLOCK)       \
+  /* subversion */                  \
+  CROW_XX(18, REPORT,      REPORT)       \
+  CROW_XX(19, MKACTIVITY,  MKACTIVITY)   \
+  CROW_XX(20, CHECKOUT,    CHECKOUT)     \
+  CROW_XX(21, MERGE,       MERGE)        \
+  /* upnp */                        \
+  CROW_XX(22, MSEARCH,     M-SEARCH)     \
+  CROW_XX(23, NOTIFY,      NOTIFY)       \
+  CROW_XX(24, SUBSCRIBE,   SUBSCRIBE)    \
+  CROW_XX(25, UNSUBSCRIBE, UNSUBSCRIBE)  \
   /* CalDAV */                      \
-  XX(26, MKCALENDAR,  MKCALENDAR)   \
+  CROW_XX(26, MKCALENDAR,  MKCALENDAR)   \
 
 enum http_method
   {
-#define XX(num, name, string) HTTP_##name = num,
-  HTTP_METHOD_MAP(XX)
-#undef XX
+#define CROW_XX(num, name, string) HTTP_##name = num,
+  CROW_HTTP_METHOD_MAP(CROW_XX)
+#undef CROW_XX
   };
 
 
@@ -3249,58 +3761,58 @@ enum flags
  * 
  * The provided argument should be a macro that takes 2 arguments.
  */
-#define HTTP_ERRNO_MAP(XX)                                           \
+#define CROW_HTTP_ERRNO_MAP(CROW_XX)                                           \
   /* No error */                                                     \
-  XX(OK, "success")                                                  \
+  CROW_XX(OK, "success")                                                  \
                                                                      \
   /* Callback-related errors */                                      \
-  XX(CB_message_begin, "the on_message_begin callback failed")       \
-  XX(CB_url, "the on_url callback failed")                           \
-  XX(CB_header_field, "the on_header_field callback failed")         \
-  XX(CB_header_value, "the on_header_value callback failed")         \
-  XX(CB_headers_complete, "the on_headers_complete callback failed") \
-  XX(CB_body, "the on_body callback failed")                         \
-  XX(CB_message_complete, "the on_message_complete callback failed") \
-  XX(CB_status, "the on_status callback failed")                     \
+  CROW_XX(CB_message_begin, "the on_message_begin callback failed")       \
+  CROW_XX(CB_url, "the on_url callback failed")                           \
+  CROW_XX(CB_header_field, "the on_header_field callback failed")         \
+  CROW_XX(CB_header_value, "the on_header_value callback failed")         \
+  CROW_XX(CB_headers_complete, "the on_headers_complete callback failed") \
+  CROW_XX(CB_body, "the on_body callback failed")                         \
+  CROW_XX(CB_message_complete, "the on_message_complete callback failed") \
+  CROW_XX(CB_status, "the on_status callback failed")                     \
                                                                      \
   /* Parsing-related errors */                                       \
-  XX(INVALID_EOF_STATE, "stream ended at an unexpected time")        \
-  XX(HEADER_OVERFLOW,                                                \
+  CROW_XX(INVALID_EOF_STATE, "stream ended at an unexpected time")        \
+  CROW_XX(HEADER_OVERFLOW,                                                \
      "too many header bytes seen; overflow detected")                \
-  XX(CLOSED_CONNECTION,                                              \
+  CROW_XX(CLOSED_CONNECTION,                                              \
      "data received after completed connection: close message")      \
-  XX(INVALID_VERSION, "invalid HTTP version")                        \
-  XX(INVALID_STATUS, "invalid HTTP status code")                     \
-  XX(INVALID_METHOD, "invalid HTTP method")                          \
-  XX(INVALID_URL, "invalid URL")                                     \
-  XX(INVALID_HOST, "invalid host")                                   \
-  XX(INVALID_PORT, "invalid port")                                   \
-  XX(INVALID_PATH, "invalid path")                                   \
-  XX(INVALID_QUERY_STRING, "invalid query string")                   \
-  XX(INVALID_FRAGMENT, "invalid fragment")                           \
-  XX(LF_EXPECTED, "LF character expected")                           \
-  XX(INVALID_HEADER_TOKEN, "invalid character in header")            \
-  XX(INVALID_CONTENT_LENGTH,                                         \
+  CROW_XX(INVALID_VERSION, "invalid HTTP version")                        \
+  CROW_XX(INVALID_STATUS, "invalid HTTP status code")                     \
+  CROW_XX(INVALID_METHOD, "invalid HTTP method")                          \
+  CROW_XX(INVALID_URL, "invalid URL")                                     \
+  CROW_XX(INVALID_HOST, "invalid host")                                   \
+  CROW_XX(INVALID_PORT, "invalid port")                                   \
+  CROW_XX(INVALID_PATH, "invalid path")                                   \
+  CROW_XX(INVALID_QUERY_STRING, "invalid query string")                   \
+  CROW_XX(INVALID_FRAGMENT, "invalid fragment")                           \
+  CROW_XX(LF_EXPECTED, "CROW_LF character expected")                           \
+  CROW_XX(INVALID_HEADER_TOKEN, "invalid character in header")            \
+  CROW_XX(INVALID_CONTENT_LENGTH,                                         \
      "invalid character in content-length header")                   \
-  XX(INVALID_CHUNK_SIZE,                                             \
+  CROW_XX(INVALID_CHUNK_SIZE,                                             \
      "invalid character in chunk size header")                       \
-  XX(INVALID_CONSTANT, "invalid constant string")                    \
-  XX(INVALID_INTERNAL_STATE, "encountered unexpected internal state")\
-  XX(STRICT, "strict mode assertion failed")                         \
-  XX(PAUSED, "parser is paused")                                     \
-  XX(UNKNOWN, "an unknown error occurred")
+  CROW_XX(INVALID_CONSTANT, "invalid constant string")                    \
+  CROW_XX(INVALID_INTERNAL_STATE, "encountered unexpected internal state")\
+  CROW_XX(STRICT, "strict mode assertion failed")                         \
+  CROW_XX(PAUSED, "parser is paused")                                     \
+  CROW_XX(UNKNOWN, "an unknown error occurred")
 
 
 /* Define HPE_* values for each errno value above */
-#define HTTP_ERRNO_GEN(n, s) HPE_##n,
+#define CROW_HTTP_ERRNO_GEN(n, s) HPE_##n,
 enum http_errno {
-  HTTP_ERRNO_MAP(HTTP_ERRNO_GEN)
+  CROW_HTTP_ERRNO_MAP(CROW_HTTP_ERRNO_GEN)
 };
-#undef HTTP_ERRNO_GEN
+#undef CROW_HTTP_ERRNO_GEN
 
 
 /* Get an http_errno value from an http_parser */
-#define HTTP_PARSER_ERRNO(p)            ((enum http_errno) (p)->http_errno)
+#define CROW_HTTP_PARSER_ERRNO(p)            ((enum http_errno) (p)->http_errno)
 
 
 struct http_parser {
@@ -3455,70 +3967,70 @@ int http_body_is_final(const http_parser *parser);
 #include <string.h>
 #include <limits.h>
 
-#ifndef ULLONG_MAX
-# define ULLONG_MAX ((uint64_t) -1) /* 2^64-1 */
+#ifndef CROW_ULLONG_MAX
+# define CROW_ULLONG_MAX ((uint64_t) -1) /* 2^64-1 */
 #endif
 
-#ifndef MIN
-# define MIN(a,b) ((a) < (b) ? (a) : (b))
+#ifndef CROW_MIN
+# define CROW_MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif
 
-#ifndef ARRAY_SIZE
-# define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#ifndef CROW_ARRAY_SIZE
+# define CROW_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
-#ifndef BIT_AT
-# define BIT_AT(a, i)                                                \
+#ifndef CROW_BIT_AT
+# define CROW_BIT_AT(a, i)                                                \
   (!!((unsigned int) (a)[(unsigned int) (i) >> 3] &                  \
    (1 << ((unsigned int) (i) & 7))))
 #endif
 
-#ifndef ELEM_AT
-# define ELEM_AT(a, i, v) ((unsigned int) (i) < ARRAY_SIZE(a) ? (a)[(i)] : (v))
+#ifndef CROW_ELEM_AT
+# define CROW_ELEM_AT(a, i, v) ((unsigned int) (i) < CROW_ARRAY_SIZE(a) ? (a)[(i)] : (v))
 #endif
 
-#define SET_ERRNO(e)                                                 \
+#define CROW_SET_ERRNO(e)                                                 \
 do {                                                                 \
   parser->http_errno = (e);                                          \
 } while(0)
 
 
 /* Run the notify callback FOR, returning ER if it fails */
-#define CALLBACK_NOTIFY_(FOR, ER)                                    \
+#define CROW_CALLBACK_NOTIFY_(FOR, ER)                                    \
 do {                                                                 \
-  assert(HTTP_PARSER_ERRNO(parser) == HPE_OK);                       \
+  assert(CROW_HTTP_PARSER_ERRNO(parser) == HPE_OK);                       \
                                                                      \
   if (settings->on_##FOR) {                                          \
     if (0 != settings->on_##FOR(parser)) {                           \
-      SET_ERRNO(HPE_CB_##FOR);                                       \
+      CROW_SET_ERRNO(HPE_CB_##FOR);                                       \
     }                                                                \
                                                                      \
     /* We either errored above or got paused; get out */             \
-    if (HTTP_PARSER_ERRNO(parser) != HPE_OK) {                       \
+    if (CROW_HTTP_PARSER_ERRNO(parser) != HPE_OK) {                       \
       return (ER);                                                   \
     }                                                                \
   }                                                                  \
 } while (0)
 
 /* Run the notify callback FOR and consume the current byte */
-#define CALLBACK_NOTIFY(FOR)            CALLBACK_NOTIFY_(FOR, p - data + 1)
+#define CROW_CALLBACK_NOTIFY(FOR)            CROW_CALLBACK_NOTIFY_(FOR, p - data + 1)
 
 /* Run the notify callback FOR and don't consume the current byte */
-#define CALLBACK_NOTIFY_NOADVANCE(FOR)  CALLBACK_NOTIFY_(FOR, p - data)
+#define CROW_CALLBACK_NOTIFY_NOADVANCE(FOR)  CROW_CALLBACK_NOTIFY_(FOR, p - data)
 
 /* Run data callback FOR with LEN bytes, returning ER if it fails */
-#define CALLBACK_DATA_(FOR, LEN, ER)                                 \
+#define CROW_CALLBACK_DATA_(FOR, LEN, ER)                                 \
 do {                                                                 \
-  assert(HTTP_PARSER_ERRNO(parser) == HPE_OK);                       \
+  assert(CROW_HTTP_PARSER_ERRNO(parser) == HPE_OK);                       \
                                                                      \
   if (FOR##_mark) {                                                  \
     if (settings->on_##FOR) {                                        \
       if (0 != settings->on_##FOR(parser, FOR##_mark, (LEN))) {      \
-        SET_ERRNO(HPE_CB_##FOR);                                     \
+        CROW_SET_ERRNO(HPE_CB_##FOR);                                     \
       }                                                              \
                                                                      \
       /* We either errored above or got paused; get out */           \
-      if (HTTP_PARSER_ERRNO(parser) != HPE_OK) {                     \
+      if (CROW_HTTP_PARSER_ERRNO(parser) != HPE_OK) {                     \
         return (ER);                                                 \
       }                                                              \
     }                                                                \
@@ -3527,15 +4039,15 @@ do {                                                                 \
 } while (0)
   
 /* Run the data callback FOR and consume the current byte */
-#define CALLBACK_DATA(FOR)                                           \
-    CALLBACK_DATA_(FOR, p - FOR##_mark, p - data + 1)
+#define CROW_CALLBACK_DATA(FOR)                                           \
+    CROW_CALLBACK_DATA_(FOR, p - FOR##_mark, p - data + 1)
 
 /* Run the data callback FOR and don't consume the current byte */
-#define CALLBACK_DATA_NOADVANCE(FOR)                                 \
-    CALLBACK_DATA_(FOR, p - FOR##_mark, p - data)
+#define CROW_CALLBACK_DATA_NOADVANCE(FOR)                                 \
+    CROW_CALLBACK_DATA_(FOR, p - FOR##_mark, p - data)
 
 /* Set the mark FOR; non-destructive if mark is already set */
-#define MARK(FOR)                                                    \
+#define CROW_MARK(FOR)                                                    \
 do {                                                                 \
   if (!FOR##_mark) {                                                 \
     FOR##_mark = p;                                                  \
@@ -3543,14 +4055,14 @@ do {                                                                 \
 } while (0)
 
 
-#define PROXY_CONNECTION "proxy-connection"
-#define CONNECTION "connection"
-#define CONTENT_LENGTH "content-length"
-#define TRANSFER_ENCODING "transfer-encoding"
-#define UPGRADE "upgrade"
-#define CHUNKED "chunked"
-#define KEEP_ALIVE "keep-alive"
-#define CLOSE "close"
+#define CROW_PROXY_CONNECTION "proxy-connection"
+#define CROW_CONNECTION "connection"
+#define CROW_CONTENT_LENGTH "content-length"
+#define CROW_TRANSFER_ENCODING "transfer-encoding"
+#define CROW_UPGRADE "upgrade"
+#define CROW_CHUNKED "chunked"
+#define CROW_KEEP_ALIVE "keep-alive"
+#define CROW_CLOSE "close"
 
 
 
@@ -3622,7 +4134,7 @@ enum state
 
   /* Important: 's_headers_done' must be the last 'header' state. All
    * states beyond this must be 'body' states. It is used for overflow
-   * checking. See the PARSING_HEADER() macro.
+   * checking. See the CROW_PARSING_HEADER() macro.
    */
 
   , s_chunk_data
@@ -3636,7 +4148,7 @@ enum state
   };
 
 
-#define PARSING_HEADER(state) (state <= s_headers_done)
+#define CROW_PARSING_HEADER(state) (state <= s_headers_done)
 
 
 enum header_states
@@ -3680,48 +4192,48 @@ enum http_host_state
 };
 
 /* Macros for character classes; depends on strict-mode  */
-#define CR                  '\r'
-#define LF                  '\n'
-#define LOWER(c)            (unsigned char)(c | 0x20)
-#define IS_ALPHA(c)         (LOWER(c) >= 'a' && LOWER(c) <= 'z')
-#define IS_NUM(c)           ((c) >= '0' && (c) <= '9')
-#define IS_ALPHANUM(c)      (IS_ALPHA(c) || IS_NUM(c))
-#define IS_HEX(c)           (IS_NUM(c) || (LOWER(c) >= 'a' && LOWER(c) <= 'f'))
-#define IS_MARK(c)          ((c) == '-' || (c) == '_' || (c) == '.' || \
+#define CROW_CR                  '\r'
+#define CROW_LF                  '\n'
+#define CROW_LOWER(c)            (unsigned char)(c | 0x20)
+#define CROW_IS_ALPHA(c)         (CROW_LOWER(c) >= 'a' && CROW_LOWER(c) <= 'z')
+#define CROW_IS_NUM(c)           ((c) >= '0' && (c) <= '9')
+#define CROW_IS_ALPHANUM(c)      (CROW_IS_ALPHA(c) || CROW_IS_NUM(c))
+#define CROW_IS_HEX(c)           (CROW_IS_NUM(c) || (CROW_LOWER(c) >= 'a' && CROW_LOWER(c) <= 'f'))
+#define CROW_IS_MARK(c)          ((c) == '-' || (c) == '_' || (c) == '.' || \
   (c) == '!' || (c) == '~' || (c) == '*' || (c) == '\'' || (c) == '(' || \
   (c) == ')')
-#define IS_USERINFO_CHAR(c) (IS_ALPHANUM(c) || IS_MARK(c) || (c) == '%' || \
+#define CROW_IS_USERINFO_CHAR(c) (CROW_IS_ALPHANUM(c) || CROW_IS_MARK(c) || (c) == '%' || \
   (c) == ';' || (c) == ':' || (c) == '&' || (c) == '=' || (c) == '+' || \
   (c) == '$' || (c) == ',')
 
-#if HTTP_PARSER_STRICT
-#define TOKEN(c)            (tokens[(unsigned char)c])
-#define IS_URL_CHAR(c)      (BIT_AT(normal_url_char, (unsigned char)c))
-#define IS_HOST_CHAR(c)     (IS_ALPHANUM(c) || (c) == '.' || (c) == '-')
+#if CROW_HTTP_PARSER_STRICT
+#define CROW_TOKEN(c)            (tokens[(unsigned char)c])
+#define CROW_IS_URL_CHAR(c)      (CROW_BIT_AT(normal_url_char, (unsigned char)c))
+#define CROW_IS_HOST_CHAR(c)     (CROW_IS_ALPHANUM(c) || (c) == '.' || (c) == '-')
 #else
-#define TOKEN(c)            ((c == ' ') ? ' ' : tokens[(unsigned char)c])
-#define IS_URL_CHAR(c)                                                         \
-  (BIT_AT(normal_url_char, (unsigned char)c) || ((c) & 0x80))
-#define IS_HOST_CHAR(c)                                                        \
-  (IS_ALPHANUM(c) || (c) == '.' || (c) == '-' || (c) == '_')
+#define CROW_TOKEN(c)            ((c == ' ') ? ' ' : tokens[(unsigned char)c])
+#define CROW_IS_URL_CHAR(c)                                                         \
+  (CROW_BIT_AT(normal_url_char, (unsigned char)c) || ((c) & 0x80))
+#define CROW_IS_HOST_CHAR(c)                                                        \
+  (CROW_IS_ALPHANUM(c) || (c) == '.' || (c) == '-' || (c) == '_')
 #endif
 
 
-#define start_state (parser->type == HTTP_REQUEST ? s_start_req : s_start_res)
+#define CROW_start_state (parser->type == HTTP_REQUEST ? s_start_req : s_start_res)
 
 
-#if HTTP_PARSER_STRICT
-# define STRICT_CHECK(cond)                                          \
+#if CROW_HTTP_PARSER_STRICT
+# define CROW_STRICT_CHECK(cond)                                          \
 do {                                                                 \
   if (cond) {                                                        \
-    SET_ERRNO(HPE_STRICT);                                           \
+    CROW_SET_ERRNO(HPE_STRICT);                                           \
     goto error;                                                      \
   }                                                                  \
 } while (0)
-# define NEW_MESSAGE() (http_should_keep_alive(parser) ? start_state : s_dead)
+# define CROW_NEW_MESSAGE() (http_should_keep_alive(parser) ? CROW_start_state : s_dead)
 #else
-# define STRICT_CHECK(cond)
-# define NEW_MESSAGE() start_state
+# define CROW_STRICT_CHECK(cond)
+# define CROW_NEW_MESSAGE() CROW_start_state
 #endif
 
 
@@ -3742,10 +4254,10 @@ int http_message_needs_eof(const http_parser *parser);
 inline enum state
 parse_url_char(enum state s, const char ch)
 {
-#if HTTP_PARSER_STRICT
-# define T(v) 0
+#if CROW_HTTP_PARSER_STRICT
+# define CROW_T(v) 0
 #else
-# define T(v) v
+# define CROW_T(v) v
 #endif
 
 
@@ -3753,7 +4265,7 @@ static const uint8_t normal_url_char[32] = {
 /*   0 nul    1 soh    2 stx    3 etx    4 eot    5 enq    6 ack    7 bel  */
         0    |   0    |   0    |   0    |   0    |   0    |   0    |   0,
 /*   8 bs     9 ht    10 nl    11 vt    12 np    13 cr    14 so    15 si   */
-        0    | T(2)   |   0    |   0    | T(16)  |   0    |   0    |   0,
+        0    | CROW_T(2)   |   0    |   0    | CROW_T(16)  |   0    |   0    |   0,
 /*  16 dle   17 dc1   18 dc2   19 dc3   20 dc4   21 nak   22 syn   23 etb */
         0    |   0    |   0    |   0    |   0    |   0    |   0    |   0,
 /*  24 can   25 em    26 sub   27 esc   28 fs    29 gs    30 rs    31 us  */
@@ -3770,7 +4282,7 @@ static const uint8_t normal_url_char[32] = {
         1    |   2    |   4    |   8    |   16   |   32   |   64   |  128,
 /*  72  H    73  I    74  J    75  K    76  L    77  M    78  N    79  O  */
         1    |   2    |   4    |   8    |   16   |   32   |   64   |  128,
-/*  80  P    81  Q    82  R    83  S    84  T    85  U    86  V    87  W  */
+/*  80  P    81  Q    82  R    83  S    84  CROW_T    85  U    86  V    87  W  */
         1    |   2    |   4    |   8    |   16   |   32   |   64   |  128,
 /*  88  X    89  Y    90  Z    91  [    92  \    93  ]    94  ^    95  _  */
         1    |   2    |   4    |   8    |   16   |   32   |   64   |  128,
@@ -3783,13 +4295,13 @@ static const uint8_t normal_url_char[32] = {
 /* 120  x   121  y   122  z   123  {   124  |   125  }   126  ~   127 del */
         1    |   2    |   4    |   8    |   16   |   32   |   64   |   0, };
 
-#undef T
+#undef CROW_T
 
   if (ch == ' ' || ch == '\r' || ch == '\n') {
     return s_dead;
   }
 
-#if HTTP_PARSER_STRICT
+#if CROW_HTTP_PARSER_STRICT
   if (ch == '\t' || ch == '\f') {
     return s_dead;
   }
@@ -3805,14 +4317,14 @@ static const uint8_t normal_url_char[32] = {
         return s_req_path;
       }
 
-      if (IS_ALPHA(ch)) {
+      if (CROW_IS_ALPHA(ch)) {
         return s_req_schema;
       }
 
       break;
 
     case s_req_schema:
-      if (IS_ALPHA(ch)) {
+      if (CROW_IS_ALPHA(ch)) {
         return s;
       }
 
@@ -3856,14 +4368,14 @@ static const uint8_t normal_url_char[32] = {
         return s_req_server_with_at;
       }
 
-      if (IS_USERINFO_CHAR(ch) || ch == '[' || ch == ']') {
+      if (CROW_IS_USERINFO_CHAR(ch) || ch == '[' || ch == ']') {
         return s_req_server;
       }
 
       break;
 
     case s_req_path:
-      if (IS_URL_CHAR(ch)) {
+      if (CROW_IS_URL_CHAR(ch)) {
         return s;
       }
 
@@ -3879,7 +4391,7 @@ static const uint8_t normal_url_char[32] = {
 
     case s_req_query_string_start:
     case s_req_query_string:
-      if (IS_URL_CHAR(ch)) {
+      if (CROW_IS_URL_CHAR(ch)) {
         return s_req_query_string;
       }
 
@@ -3895,7 +4407,7 @@ static const uint8_t normal_url_char[32] = {
       break;
 
     case s_req_fragment_start:
-      if (IS_URL_CHAR(ch)) {
+      if (CROW_IS_URL_CHAR(ch)) {
         return s_req_fragment;
       }
 
@@ -3910,7 +4422,7 @@ static const uint8_t normal_url_char[32] = {
       break;
 
     case s_req_fragment:
-      if (IS_URL_CHAR(ch)) {
+      if (CROW_IS_URL_CHAR(ch)) {
         return s;
       }
 
@@ -3937,9 +4449,9 @@ inline size_t http_parser_execute (http_parser *parser,
 {
 static const char *method_strings[] =
   {
-#define XX(num, name, string) #string,
-  HTTP_METHOD_MAP(XX)
-#undef XX
+#define CROW_XX(num, name, string) #string,
+  CROW_HTTP_METHOD_MAP(CROW_XX)
+#undef CROW_XX
   };
 
 /* Tokens as defined by rfc 2616. Also lowercases them.
@@ -4007,17 +4519,17 @@ static const int8_t unhex[256] =
   const char *status_mark = 0;
 
   /* We're in an error state. Don't bother doing anything. */
-  if (HTTP_PARSER_ERRNO(parser) != HPE_OK) {
+  if (CROW_HTTP_PARSER_ERRNO(parser) != HPE_OK) {
     return 0;
   }
 
   if (len == 0) {
     switch (parser->state) {
       case s_body_identity_eof:
-        /* Use of CALLBACK_NOTIFY() here would erroneously return 1 byte read if
+        /* Use of CROW_CALLBACK_NOTIFY() here would erroneously return 1 byte read if
          * we got paused.
          */
-        CALLBACK_NOTIFY_NOADVANCE(message_complete);
+        CROW_CALLBACK_NOTIFY_NOADVANCE(message_complete);
         return 0;
 
       case s_dead:
@@ -4027,7 +4539,7 @@ static const int8_t unhex[256] =
         return 0;
 
       default:
-        SET_ERRNO(HPE_INVALID_EOF_STATE);
+        CROW_SET_ERRNO(HPE_INVALID_EOF_STATE);
         return 1;
     }
   }
@@ -4059,21 +4571,21 @@ static const int8_t unhex[256] =
   for (p=data; p != data + len; p++) {
     ch = *p;
 
-    if (PARSING_HEADER(parser->state)) {
+    if (CROW_PARSING_HEADER(parser->state)) {
       ++parser->nread;
       /* Don't allow the total size of the HTTP headers (including the status
-       * line) to exceed HTTP_MAX_HEADER_SIZE.  This check is here to protect
+       * line) to exceed CROW_HTTP_MAX_HEADER_SIZE.  This check is here to protect
        * embedders against denial-of-service attacks where the attacker feeds
        * us a never-ending header that the embedder keeps buffering.
        *
        * This check is arguably the responsibility of embedders but we're doing
        * it on the embedder's behalf because most won't bother and this way we
-       * make the web a little safer.  HTTP_MAX_HEADER_SIZE is still far bigger
+       * make the web a little safer.  CROW_HTTP_MAX_HEADER_SIZE is still far bigger
        * than any reasonable request or response so this should never affect
        * day-to-day operation.
        */
-      if (parser->nread > (HTTP_MAX_HEADER_SIZE)) {
-        SET_ERRNO(HPE_HEADER_OVERFLOW);
+      if (parser->nread > (CROW_HTTP_MAX_HEADER_SIZE)) {
+        CROW_SET_ERRNO(HPE_HEADER_OVERFLOW);
         goto error;
       }
     }
@@ -4085,23 +4597,23 @@ static const int8_t unhex[256] =
         /* this state is used after a 'Connection: close' message
          * the parser will error out if it reads another message
          */
-        if (ch == CR || ch == LF)
+        if (ch == CROW_CR || ch == CROW_LF)
           break;
 
-        SET_ERRNO(HPE_CLOSED_CONNECTION);
+        CROW_SET_ERRNO(HPE_CLOSED_CONNECTION);
         goto error;
 
       case s_start_req_or_res:
       {
-        if (ch == CR || ch == LF)
+        if (ch == CROW_CR || ch == CROW_LF)
           break;
         parser->flags = 0;
-        parser->content_length = ULLONG_MAX;
+        parser->content_length = CROW_ULLONG_MAX;
 
         if (ch == 'H') {
           parser->state = s_res_or_resp_H;
 
-          CALLBACK_NOTIFY(message_begin);
+          CROW_CALLBACK_NOTIFY(message_begin);
         } else {
           parser->type = HTTP_REQUEST;
           parser->state = s_start_req;
@@ -4117,7 +4629,7 @@ static const int8_t unhex[256] =
           parser->state = s_res_HT;
         } else {
           if (ch != 'E') {
-            SET_ERRNO(HPE_INVALID_CONSTANT);
+            CROW_SET_ERRNO(HPE_INVALID_CONSTANT);
             goto error;
           }
 
@@ -4131,49 +4643,49 @@ static const int8_t unhex[256] =
       case s_start_res:
       {
         parser->flags = 0;
-        parser->content_length = ULLONG_MAX;
+        parser->content_length = CROW_ULLONG_MAX;
 
         switch (ch) {
           case 'H':
             parser->state = s_res_H;
             break;
 
-          case CR:
-          case LF:
+          case CROW_CR:
+          case CROW_LF:
             break;
 
           default:
-            SET_ERRNO(HPE_INVALID_CONSTANT);
+            CROW_SET_ERRNO(HPE_INVALID_CONSTANT);
             goto error;
         }
 
-        CALLBACK_NOTIFY(message_begin);
+        CROW_CALLBACK_NOTIFY(message_begin);
         break;
       }
 
       case s_res_H:
-        STRICT_CHECK(ch != 'T');
+        CROW_STRICT_CHECK(ch != 'T');
         parser->state = s_res_HT;
         break;
 
       case s_res_HT:
-        STRICT_CHECK(ch != 'T');
+        CROW_STRICT_CHECK(ch != 'T');
         parser->state = s_res_HTT;
         break;
 
       case s_res_HTT:
-        STRICT_CHECK(ch != 'P');
+        CROW_STRICT_CHECK(ch != 'P');
         parser->state = s_res_HTTP;
         break;
 
       case s_res_HTTP:
-        STRICT_CHECK(ch != '/');
+        CROW_STRICT_CHECK(ch != '/');
         parser->state = s_res_first_http_major;
         break;
 
       case s_res_first_http_major:
         if (ch < '0' || ch > '9') {
-          SET_ERRNO(HPE_INVALID_VERSION);
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4189,8 +4701,8 @@ static const int8_t unhex[256] =
           break;
         }
 
-        if (!IS_NUM(ch)) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+        if (!CROW_IS_NUM(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4198,7 +4710,7 @@ static const int8_t unhex[256] =
         parser->http_major += ch - '0';
 
         if (parser->http_major > 999) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4207,8 +4719,8 @@ static const int8_t unhex[256] =
 
       /* first digit of minor HTTP version */
       case s_res_first_http_minor:
-        if (!IS_NUM(ch)) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+        if (!CROW_IS_NUM(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4224,8 +4736,8 @@ static const int8_t unhex[256] =
           break;
         }
 
-        if (!IS_NUM(ch)) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+        if (!CROW_IS_NUM(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4233,7 +4745,7 @@ static const int8_t unhex[256] =
         parser->http_minor += ch - '0';
 
         if (parser->http_minor > 999) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4242,12 +4754,12 @@ static const int8_t unhex[256] =
 
       case s_res_first_status_code:
       {
-        if (!IS_NUM(ch)) {
+        if (!CROW_IS_NUM(ch)) {
           if (ch == ' ') {
             break;
           }
 
-          SET_ERRNO(HPE_INVALID_STATUS);
+          CROW_SET_ERRNO(HPE_INVALID_STATUS);
           goto error;
         }
         parser->status_code = ch - '0';
@@ -4257,19 +4769,19 @@ static const int8_t unhex[256] =
 
       case s_res_status_code:
       {
-        if (!IS_NUM(ch)) {
+        if (!CROW_IS_NUM(ch)) {
           switch (ch) {
             case ' ':
               parser->state = s_res_status_start;
               break;
-            case CR:
+            case CROW_CR:
               parser->state = s_res_line_almost_done;
               break;
-            case LF:
+            case CROW_LF:
               parser->state = s_header_field_start;
               break;
             default:
-              SET_ERRNO(HPE_INVALID_STATUS);
+              CROW_SET_ERRNO(HPE_INVALID_STATUS);
               goto error;
           }
           break;
@@ -4279,7 +4791,7 @@ static const int8_t unhex[256] =
         parser->status_code += ch - '0';
 
         if (parser->status_code > 999) {
-          SET_ERRNO(HPE_INVALID_STATUS);
+          CROW_SET_ERRNO(HPE_INVALID_STATUS);
           goto error;
         }
 
@@ -4288,51 +4800,51 @@ static const int8_t unhex[256] =
 
       case s_res_status_start:
       {
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_res_line_almost_done;
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           parser->state = s_header_field_start;
           break;
         }
 
-        MARK(status);
+        CROW_MARK(status);
         parser->state = s_res_status;
         parser->index = 0;
         break;
       }
 
       case s_res_status:
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_res_line_almost_done;
-          CALLBACK_DATA(status);
+          CROW_CALLBACK_DATA(status);
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           parser->state = s_header_field_start;
-          CALLBACK_DATA(status);
+          CROW_CALLBACK_DATA(status);
           break;
         }
 
         break;
 
       case s_res_line_almost_done:
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
         parser->state = s_header_field_start;
         break;
 
       case s_start_req:
       {
-        if (ch == CR || ch == LF)
+        if (ch == CROW_CR || ch == CROW_LF)
           break;
         parser->flags = 0;
-        parser->content_length = ULLONG_MAX;
+        parser->content_length = CROW_ULLONG_MAX;
 
-        if (!IS_ALPHA(ch)) {
-          SET_ERRNO(HPE_INVALID_METHOD);
+        if (!CROW_IS_ALPHA(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_METHOD);
           goto error;
         }
 
@@ -4355,12 +4867,12 @@ static const int8_t unhex[256] =
           case 'T': parser->method = HTTP_TRACE; break;
           case 'U': parser->method = HTTP_UNLOCK; /* or UNSUBSCRIBE */ break;
           default:
-            SET_ERRNO(HPE_INVALID_METHOD);
+            CROW_SET_ERRNO(HPE_INVALID_METHOD);
             goto error;
         }
         parser->state = s_req_method;
 
-        CALLBACK_NOTIFY(message_begin);
+        CROW_CALLBACK_NOTIFY(message_begin);
 
         break;
       }
@@ -4369,7 +4881,7 @@ static const int8_t unhex[256] =
       {
         const char *matcher;
         if (ch == '\0') {
-          SET_ERRNO(HPE_INVALID_METHOD);
+          CROW_SET_ERRNO(HPE_INVALID_METHOD);
           goto error;
         }
 
@@ -4384,7 +4896,7 @@ static const int8_t unhex[256] =
           } else if (parser->index == 2  && ch == 'P') {
             parser->method = HTTP_COPY;
           } else {
-            SET_ERRNO(HPE_INVALID_METHOD);
+            CROW_SET_ERRNO(HPE_INVALID_METHOD);
             goto error;
           }
         } else if (parser->method == HTTP_MKCOL) {
@@ -4399,14 +4911,14 @@ static const int8_t unhex[256] =
           } else if (parser->index == 3 && ch == 'A') {
             parser->method = HTTP_MKCALENDAR;
           } else {
-            SET_ERRNO(HPE_INVALID_METHOD);
+            CROW_SET_ERRNO(HPE_INVALID_METHOD);
             goto error;
           }
         } else if (parser->method == HTTP_SUBSCRIBE) {
           if (parser->index == 1 && ch == 'E') {
             parser->method = HTTP_SEARCH;
           } else {
-            SET_ERRNO(HPE_INVALID_METHOD);
+            CROW_SET_ERRNO(HPE_INVALID_METHOD);
             goto error;
           }
         } else if (parser->index == 1 && parser->method == HTTP_POST) {
@@ -4417,7 +4929,7 @@ static const int8_t unhex[256] =
           } else if (ch == 'A') {
             parser->method = HTTP_PATCH;
           } else {
-            SET_ERRNO(HPE_INVALID_METHOD);
+            CROW_SET_ERRNO(HPE_INVALID_METHOD);
             goto error;
           }
         } else if (parser->index == 2) {
@@ -4425,24 +4937,24 @@ static const int8_t unhex[256] =
             if (ch == 'R') {
               parser->method = HTTP_PURGE;
             } else {
-              SET_ERRNO(HPE_INVALID_METHOD);
+              CROW_SET_ERRNO(HPE_INVALID_METHOD);
               goto error;
             }
           } else if (parser->method == HTTP_UNLOCK) {
             if (ch == 'S') {
               parser->method = HTTP_UNSUBSCRIBE;
             } else {
-              SET_ERRNO(HPE_INVALID_METHOD);
+              CROW_SET_ERRNO(HPE_INVALID_METHOD);
               goto error;
             }
           } else {
-            SET_ERRNO(HPE_INVALID_METHOD);
+            CROW_SET_ERRNO(HPE_INVALID_METHOD);
             goto error;
           }
         } else if (parser->index == 4 && parser->method == HTTP_PROPFIND && ch == 'P') {
           parser->method = HTTP_PROPPATCH;
         } else {
-          SET_ERRNO(HPE_INVALID_METHOD);
+          CROW_SET_ERRNO(HPE_INVALID_METHOD);
           goto error;
         }
 
@@ -4454,14 +4966,14 @@ static const int8_t unhex[256] =
       {
         if (ch == ' ') break;
 
-        MARK(url);
+        CROW_MARK(url);
         if (parser->method == HTTP_CONNECT) {
           parser->state = s_req_server_start;
         }
 
         parser->state = parse_url_char((enum state)parser->state, ch);
         if (parser->state == s_dead) {
-          SET_ERRNO(HPE_INVALID_URL);
+          CROW_SET_ERRNO(HPE_INVALID_URL);
           goto error;
         }
 
@@ -4476,14 +4988,14 @@ static const int8_t unhex[256] =
         switch (ch) {
           /* No whitespace allowed here */
           case ' ':
-          case CR:
-          case LF:
-            SET_ERRNO(HPE_INVALID_URL);
+          case CROW_CR:
+          case CROW_LF:
+            CROW_SET_ERRNO(HPE_INVALID_URL);
             goto error;
           default:
             parser->state = parse_url_char((enum state)parser->state, ch);
             if (parser->state == s_dead) {
-              SET_ERRNO(HPE_INVALID_URL);
+              CROW_SET_ERRNO(HPE_INVALID_URL);
               goto error;
             }
         }
@@ -4502,21 +5014,21 @@ static const int8_t unhex[256] =
         switch (ch) {
           case ' ':
             parser->state = s_req_http_start;
-            CALLBACK_DATA(url);
+            CROW_CALLBACK_DATA(url);
             break;
-          case CR:
-          case LF:
+          case CROW_CR:
+          case CROW_LF:
             parser->http_major = 0;
             parser->http_minor = 9;
-            parser->state = (ch == CR) ?
+            parser->state = (ch == CROW_CR) ?
               s_req_line_almost_done :
               s_header_field_start;
-            CALLBACK_DATA(url);
+            CROW_CALLBACK_DATA(url);
             break;
           default:
             parser->state = parse_url_char((enum state)parser->state, ch);
             if (parser->state == s_dead) {
-              SET_ERRNO(HPE_INVALID_URL);
+              CROW_SET_ERRNO(HPE_INVALID_URL);
               goto error;
             }
         }
@@ -4531,35 +5043,35 @@ static const int8_t unhex[256] =
           case ' ':
             break;
           default:
-            SET_ERRNO(HPE_INVALID_CONSTANT);
+            CROW_SET_ERRNO(HPE_INVALID_CONSTANT);
             goto error;
         }
         break;
 
       case s_req_http_H:
-        STRICT_CHECK(ch != 'T');
+        CROW_STRICT_CHECK(ch != 'T');
         parser->state = s_req_http_HT;
         break;
 
       case s_req_http_HT:
-        STRICT_CHECK(ch != 'T');
+        CROW_STRICT_CHECK(ch != 'T');
         parser->state = s_req_http_HTT;
         break;
 
       case s_req_http_HTT:
-        STRICT_CHECK(ch != 'P');
+        CROW_STRICT_CHECK(ch != 'P');
         parser->state = s_req_http_HTTP;
         break;
 
       case s_req_http_HTTP:
-        STRICT_CHECK(ch != '/');
+        CROW_STRICT_CHECK(ch != '/');
         parser->state = s_req_first_http_major;
         break;
 
       /* first digit of major HTTP version */
       case s_req_first_http_major:
         if (ch < '1' || ch > '9') {
-          SET_ERRNO(HPE_INVALID_VERSION);
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4575,8 +5087,8 @@ static const int8_t unhex[256] =
           break;
         }
 
-        if (!IS_NUM(ch)) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+        if (!CROW_IS_NUM(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4584,7 +5096,7 @@ static const int8_t unhex[256] =
         parser->http_major += ch - '0';
 
         if (parser->http_major > 999) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4593,8 +5105,8 @@ static const int8_t unhex[256] =
 
       /* first digit of minor HTTP version */
       case s_req_first_http_minor:
-        if (!IS_NUM(ch)) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+        if (!CROW_IS_NUM(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4605,20 +5117,20 @@ static const int8_t unhex[256] =
       /* minor HTTP version or end of request line */
       case s_req_http_minor:
       {
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_req_line_almost_done;
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           parser->state = s_header_field_start;
           break;
         }
 
         /* XXX allow spaces after digit? */
 
-        if (!IS_NUM(ch)) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+        if (!CROW_IS_NUM(ch)) {
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4626,7 +5138,7 @@ static const int8_t unhex[256] =
         parser->http_minor += ch - '0';
 
         if (parser->http_minor > 999) {
-          SET_ERRNO(HPE_INVALID_VERSION);
+          CROW_SET_ERRNO(HPE_INVALID_VERSION);
           goto error;
         }
 
@@ -4636,8 +5148,8 @@ static const int8_t unhex[256] =
       /* end of request line */
       case s_req_line_almost_done:
       {
-        if (ch != LF) {
-          SET_ERRNO(HPE_LF_EXPECTED);
+        if (ch != CROW_LF) {
+          CROW_SET_ERRNO(HPE_LF_EXPECTED);
           goto error;
         }
 
@@ -4647,26 +5159,26 @@ static const int8_t unhex[256] =
 
       case s_header_field_start:
       {
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_headers_almost_done;
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           /* they might be just sending \n instead of \r\n so this would be
            * the second \n to denote the end of headers*/
           parser->state = s_headers_almost_done;
           goto reexecute_byte;
         }
 
-        c = TOKEN(ch);
+        c = CROW_TOKEN(ch);
 
         if (!c) {
-          SET_ERRNO(HPE_INVALID_HEADER_TOKEN);
+          CROW_SET_ERRNO(HPE_INVALID_HEADER_TOKEN);
           goto error;
         }
 
-        MARK(header_field);
+        CROW_MARK(header_field);
 
         parser->index = 0;
         parser->state = s_header_field;
@@ -4697,7 +5209,7 @@ static const int8_t unhex[256] =
 
       case s_header_field:
       {
-        c = TOKEN(ch);
+        c = CROW_TOKEN(ch);
 
         if (c) {
           switch (parser->header_state) {
@@ -4733,10 +5245,10 @@ static const int8_t unhex[256] =
 
             case h_matching_connection:
               parser->index++;
-              if (parser->index > sizeof(CONNECTION)-1
-                  || c != CONNECTION[parser->index]) {
+              if (parser->index > sizeof(CROW_CONNECTION)-1
+                  || c != CROW_CONNECTION[parser->index]) {
                 parser->header_state = h_general;
-              } else if (parser->index == sizeof(CONNECTION)-2) {
+              } else if (parser->index == sizeof(CROW_CONNECTION)-2) {
                 parser->header_state = h_connection;
               }
               break;
@@ -4745,10 +5257,10 @@ static const int8_t unhex[256] =
 
             case h_matching_proxy_connection:
               parser->index++;
-              if (parser->index > sizeof(PROXY_CONNECTION)-1
-                  || c != PROXY_CONNECTION[parser->index]) {
+              if (parser->index > sizeof(CROW_PROXY_CONNECTION)-1
+                  || c != CROW_PROXY_CONNECTION[parser->index]) {
                 parser->header_state = h_general;
-              } else if (parser->index == sizeof(PROXY_CONNECTION)-2) {
+              } else if (parser->index == sizeof(CROW_PROXY_CONNECTION)-2) {
                 parser->header_state = h_connection;
               }
               break;
@@ -4757,10 +5269,10 @@ static const int8_t unhex[256] =
 
             case h_matching_content_length:
               parser->index++;
-              if (parser->index > sizeof(CONTENT_LENGTH)-1
-                  || c != CONTENT_LENGTH[parser->index]) {
+              if (parser->index > sizeof(CROW_CONTENT_LENGTH)-1
+                  || c != CROW_CONTENT_LENGTH[parser->index]) {
                 parser->header_state = h_general;
-              } else if (parser->index == sizeof(CONTENT_LENGTH)-2) {
+              } else if (parser->index == sizeof(CROW_CONTENT_LENGTH)-2) {
                 parser->header_state = h_content_length;
               }
               break;
@@ -4769,10 +5281,10 @@ static const int8_t unhex[256] =
 
             case h_matching_transfer_encoding:
               parser->index++;
-              if (parser->index > sizeof(TRANSFER_ENCODING)-1
-                  || c != TRANSFER_ENCODING[parser->index]) {
+              if (parser->index > sizeof(CROW_TRANSFER_ENCODING)-1
+                  || c != CROW_TRANSFER_ENCODING[parser->index]) {
                 parser->header_state = h_general;
-              } else if (parser->index == sizeof(TRANSFER_ENCODING)-2) {
+              } else if (parser->index == sizeof(CROW_TRANSFER_ENCODING)-2) {
                 parser->header_state = h_transfer_encoding;
               }
               break;
@@ -4781,10 +5293,10 @@ static const int8_t unhex[256] =
 
             case h_matching_upgrade:
               parser->index++;
-              if (parser->index > sizeof(UPGRADE)-1
-                  || c != UPGRADE[parser->index]) {
+              if (parser->index > sizeof(CROW_UPGRADE)-1
+                  || c != CROW_UPGRADE[parser->index]) {
                 parser->header_state = h_general;
-              } else if (parser->index == sizeof(UPGRADE)-2) {
+              } else if (parser->index == sizeof(CROW_UPGRADE)-2) {
                 parser->header_state = h_upgrade;
               }
               break;
@@ -4805,35 +5317,35 @@ static const int8_t unhex[256] =
 
         if (ch == ':') {
           parser->state = s_header_value_discard_ws;
-          CALLBACK_DATA(header_field);
+          CROW_CALLBACK_DATA(header_field);
           break;
         }
 
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_header_almost_done;
-          CALLBACK_DATA(header_field);
+          CROW_CALLBACK_DATA(header_field);
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           parser->state = s_header_field_start;
-          CALLBACK_DATA(header_field);
+          CROW_CALLBACK_DATA(header_field);
           break;
         }
 
-        SET_ERRNO(HPE_INVALID_HEADER_TOKEN);
+        CROW_SET_ERRNO(HPE_INVALID_HEADER_TOKEN);
         goto error;
       }
 
       case s_header_value_discard_ws:
         if (ch == ' ' || ch == '\t') break;
 
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_header_value_discard_ws_almost_done;
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           parser->state = s_header_value_discard_lws;
           break;
         }
@@ -4842,12 +5354,12 @@ static const int8_t unhex[256] =
 
       case s_header_value_start:
       {
-        MARK(header_value);
+        CROW_MARK(header_value);
 
         parser->state = s_header_value;
         parser->index = 0;
 
-        c = LOWER(ch);
+        c = CROW_LOWER(ch);
 
         switch (parser->header_state) {
           case h_upgrade:
@@ -4865,8 +5377,8 @@ static const int8_t unhex[256] =
             break;
 
           case h_content_length:
-            if (!IS_NUM(ch)) {
-              SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
+            if (!CROW_IS_NUM(ch)) {
+              CROW_SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
               goto error;
             }
 
@@ -4895,19 +5407,19 @@ static const int8_t unhex[256] =
       case s_header_value:
       {
 
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_header_almost_done;
-          CALLBACK_DATA(header_value);
+          CROW_CALLBACK_DATA(header_value);
           break;
         }
 
-        if (ch == LF) {
+        if (ch == CROW_LF) {
           parser->state = s_header_almost_done;
-          CALLBACK_DATA_NOADVANCE(header_value);
+          CROW_CALLBACK_DATA_NOADVANCE(header_value);
           goto reexecute_byte;
         }
 
-        c = LOWER(ch);
+        c = CROW_LOWER(ch);
 
         switch (parser->header_state) {
           case h_general:
@@ -4924,8 +5436,8 @@ static const int8_t unhex[256] =
 
             if (ch == ' ') break;
 
-            if (!IS_NUM(ch)) {
-              SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
+            if (!CROW_IS_NUM(ch)) {
+              CROW_SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
               goto error;
             }
 
@@ -4934,8 +5446,8 @@ static const int8_t unhex[256] =
             t += ch - '0';
 
             /* Overflow? Test against a conservative limit for simplicity. */
-            if ((ULLONG_MAX - 10) / 10 < parser->content_length) {
-              SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
+            if ((CROW_ULLONG_MAX - 10) / 10 < parser->content_length) {
+              CROW_SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
               goto error;
             }
 
@@ -4946,10 +5458,10 @@ static const int8_t unhex[256] =
           /* Transfer-Encoding: chunked */
           case h_matching_transfer_encoding_chunked:
             parser->index++;
-            if (parser->index > sizeof(CHUNKED)-1
-                || c != CHUNKED[parser->index]) {
+            if (parser->index > sizeof(CROW_CHUNKED)-1
+                || c != CROW_CHUNKED[parser->index]) {
               parser->header_state = h_general;
-            } else if (parser->index == sizeof(CHUNKED)-2) {
+            } else if (parser->index == sizeof(CROW_CHUNKED)-2) {
               parser->header_state = h_transfer_encoding_chunked;
             }
             break;
@@ -4957,10 +5469,10 @@ static const int8_t unhex[256] =
           /* looking for 'Connection: keep-alive' */
           case h_matching_connection_keep_alive:
             parser->index++;
-            if (parser->index > sizeof(KEEP_ALIVE)-1
-                || c != KEEP_ALIVE[parser->index]) {
+            if (parser->index > sizeof(CROW_KEEP_ALIVE)-1
+                || c != CROW_KEEP_ALIVE[parser->index]) {
               parser->header_state = h_general;
-            } else if (parser->index == sizeof(KEEP_ALIVE)-2) {
+            } else if (parser->index == sizeof(CROW_KEEP_ALIVE)-2) {
               parser->header_state = h_connection_keep_alive;
             }
             break;
@@ -4968,9 +5480,9 @@ static const int8_t unhex[256] =
           /* looking for 'Connection: close' */
           case h_matching_connection_close:
             parser->index++;
-            if (parser->index > sizeof(CLOSE)-1 || c != CLOSE[parser->index]) {
+            if (parser->index > sizeof(CROW_CLOSE)-1 || c != CROW_CLOSE[parser->index]) {
               parser->header_state = h_general;
-            } else if (parser->index == sizeof(CLOSE)-2) {
+            } else if (parser->index == sizeof(CROW_CLOSE)-2) {
               parser->header_state = h_connection_close;
             }
             break;
@@ -4991,7 +5503,7 @@ static const int8_t unhex[256] =
 
       case s_header_almost_done:
       {
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
 
         parser->state = s_header_value_lws;
         break;
@@ -5025,7 +5537,7 @@ static const int8_t unhex[256] =
 
       case s_header_value_discard_ws_almost_done:
       {
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
         parser->state = s_header_value_discard_lws;
         break;
       }
@@ -5037,21 +5549,21 @@ static const int8_t unhex[256] =
           break;
         } else {
           /* header value was empty */
-          MARK(header_value);
+          CROW_MARK(header_value);
           parser->state = s_header_field_start;
-          CALLBACK_DATA_NOADVANCE(header_value);
+          CROW_CALLBACK_DATA_NOADVANCE(header_value);
           goto reexecute_byte;
         }
       }
 
       case s_headers_almost_done:
       {
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
 
         if (parser->flags & F_TRAILING) {
           /* End of a chunked request */
-          parser->state = NEW_MESSAGE();
-          CALLBACK_NOTIFY(message_complete);
+          parser->state = CROW_NEW_MESSAGE();
+          CROW_CALLBACK_NOTIFY(message_complete);
           break;
         }
 
@@ -5067,7 +5579,7 @@ static const int8_t unhex[256] =
          * is needed for the annoying case of recieving a response to a HEAD
          * request.
          *
-         * We'd like to use CALLBACK_NOTIFY_NOADVANCE() here but we cannot, so
+         * We'd like to use CROW_CALLBACK_NOTIFY_NOADVANCE() here but we cannot, so
          * we have to simulate it by handling a change in errno below.
          */
         if (settings->on_headers_complete) {
@@ -5080,12 +5592,12 @@ static const int8_t unhex[256] =
               break;
 
             default:
-              SET_ERRNO(HPE_CB_headers_complete);
+              CROW_SET_ERRNO(HPE_CB_headers_complete);
               return p - data; /* Error */
           }
         }
 
-        if (HTTP_PARSER_ERRNO(parser) != HPE_OK) {
+        if (CROW_HTTP_PARSER_ERRNO(parser) != HPE_OK) {
           return p - data;
         }
 
@@ -5094,37 +5606,37 @@ static const int8_t unhex[256] =
 
       case s_headers_done:
       {
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
 
         parser->nread = 0;
 
         /* Exit, the rest of the connect is in a different protocol. */
         if (parser->upgrade) {
-          parser->state = NEW_MESSAGE();
-          CALLBACK_NOTIFY(message_complete);
+          parser->state = CROW_NEW_MESSAGE();
+          CROW_CALLBACK_NOTIFY(message_complete);
           return (p - data) + 1;
         }
 
         if (parser->flags & F_SKIPBODY) {
-          parser->state = NEW_MESSAGE();
-          CALLBACK_NOTIFY(message_complete);
+          parser->state = CROW_NEW_MESSAGE();
+          CROW_CALLBACK_NOTIFY(message_complete);
         } else if (parser->flags & F_CHUNKED) {
           /* chunked encoding - ignore Content-Length header */
           parser->state = s_chunk_size_start;
         } else {
           if (parser->content_length == 0) {
             /* Content-Length header given but zero: Content-Length: 0\r\n */
-            parser->state = NEW_MESSAGE();
-            CALLBACK_NOTIFY(message_complete);
-          } else if (parser->content_length != ULLONG_MAX) {
+            parser->state = CROW_NEW_MESSAGE();
+            CROW_CALLBACK_NOTIFY(message_complete);
+          } else if (parser->content_length != CROW_ULLONG_MAX) {
             /* Content-Length header given and non-zero */
             parser->state = s_body_identity;
           } else {
             if (parser->type == HTTP_REQUEST ||
                 !http_message_needs_eof(parser)) {
               /* Assume content-length 0 - read the next */
-              parser->state = NEW_MESSAGE();
-              CALLBACK_NOTIFY(message_complete);
+              parser->state = CROW_NEW_MESSAGE();
+              CROW_CALLBACK_NOTIFY(message_complete);
             } else {
               /* Read body until EOF */
               parser->state = s_body_identity_eof;
@@ -5137,25 +5649,25 @@ static const int8_t unhex[256] =
 
       case s_body_identity:
       {
-        uint64_t to_read = MIN(parser->content_length,
+        uint64_t to_read = CROW_MIN(parser->content_length,
                                (uint64_t) ((data + len) - p));
 
         assert(parser->content_length != 0
-            && parser->content_length != ULLONG_MAX);
+            && parser->content_length != CROW_ULLONG_MAX);
 
         /* The difference between advancing content_length and p is because
          * the latter will automaticaly advance on the next loop iteration.
          * Further, if content_length ends up at 0, we want to see the last
          * byte again for our message complete callback.
          */
-        MARK(body);
+        CROW_MARK(body);
         parser->content_length -= to_read;
         p += to_read - 1;
 
         if (parser->content_length == 0) {
           parser->state = s_message_done;
 
-          /* Mimic CALLBACK_DATA_NOADVANCE() but with one extra byte.
+          /* Mimic CROW_CALLBACK_DATA_NOADVANCE() but with one extra byte.
            *
            * The alternative to doing this is to wait for the next byte to
            * trigger the data callback, just as in every other case. The
@@ -5164,7 +5676,7 @@ static const int8_t unhex[256] =
            * complete-on-length. It's not clear that this distinction is
            * important for applications, but let's keep it for now.
            */
-          CALLBACK_DATA_(body, p - body_mark + 1, p - data);
+          CROW_CALLBACK_DATA_(body, p - body_mark + 1, p - data);
           goto reexecute_byte;
         }
 
@@ -5173,14 +5685,14 @@ static const int8_t unhex[256] =
 
       /* read until EOF */
       case s_body_identity_eof:
-        MARK(body);
+        CROW_MARK(body);
         p = data + len - 1;
 
         break;
 
       case s_message_done:
-        parser->state = NEW_MESSAGE();
-        CALLBACK_NOTIFY(message_complete);
+        parser->state = CROW_NEW_MESSAGE();
+        CROW_CALLBACK_NOTIFY(message_complete);
         break;
 
       case s_chunk_size_start:
@@ -5190,7 +5702,7 @@ static const int8_t unhex[256] =
 
         unhex_val = unhex[(unsigned char)ch];
         if (unhex_val == -1) {
-          SET_ERRNO(HPE_INVALID_CHUNK_SIZE);
+          CROW_SET_ERRNO(HPE_INVALID_CHUNK_SIZE);
           goto error;
         }
 
@@ -5205,7 +5717,7 @@ static const int8_t unhex[256] =
 
         assert(parser->flags & F_CHUNKED);
 
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_chunk_size_almost_done;
           break;
         }
@@ -5218,7 +5730,7 @@ static const int8_t unhex[256] =
             break;
           }
 
-          SET_ERRNO(HPE_INVALID_CHUNK_SIZE);
+          CROW_SET_ERRNO(HPE_INVALID_CHUNK_SIZE);
           goto error;
         }
 
@@ -5227,8 +5739,8 @@ static const int8_t unhex[256] =
         t += unhex_val;
 
         /* Overflow? Test against a conservative limit for simplicity. */
-        if ((ULLONG_MAX - 16) / 16 < parser->content_length) {
-          SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
+        if ((CROW_ULLONG_MAX - 16) / 16 < parser->content_length) {
+          CROW_SET_ERRNO(HPE_INVALID_CONTENT_LENGTH);
           goto error;
         }
 
@@ -5240,7 +5752,7 @@ static const int8_t unhex[256] =
       {
         assert(parser->flags & F_CHUNKED);
         /* just ignore this shit. TODO check for overflow */
-        if (ch == CR) {
+        if (ch == CROW_CR) {
           parser->state = s_chunk_size_almost_done;
           break;
         }
@@ -5250,7 +5762,7 @@ static const int8_t unhex[256] =
       case s_chunk_size_almost_done:
       {
         assert(parser->flags & F_CHUNKED);
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
 
         parser->nread = 0;
 
@@ -5265,17 +5777,17 @@ static const int8_t unhex[256] =
 
       case s_chunk_data:
       {
-        uint64_t to_read = MIN(parser->content_length,
+        uint64_t to_read = CROW_MIN(parser->content_length,
                                (uint64_t) ((data + len) - p));
 
         assert(parser->flags & F_CHUNKED);
         assert(parser->content_length != 0
-            && parser->content_length != ULLONG_MAX);
+            && parser->content_length != CROW_ULLONG_MAX);
 
         /* See the explanation in s_body_identity for why the content
          * length and data pointers are managed this way.
          */
-        MARK(body);
+        CROW_MARK(body);
         parser->content_length -= to_read;
         p += to_read - 1;
 
@@ -5289,21 +5801,21 @@ static const int8_t unhex[256] =
       case s_chunk_data_almost_done:
         assert(parser->flags & F_CHUNKED);
         assert(parser->content_length == 0);
-        STRICT_CHECK(ch != CR);
+        CROW_STRICT_CHECK(ch != CROW_CR);
         parser->state = s_chunk_data_done;
-        CALLBACK_DATA(body);
+        CROW_CALLBACK_DATA(body);
         break;
 
       case s_chunk_data_done:
         assert(parser->flags & F_CHUNKED);
-        STRICT_CHECK(ch != LF);
+        CROW_STRICT_CHECK(ch != CROW_LF);
         parser->nread = 0;
         parser->state = s_chunk_size_start;
         break;
 
       default:
         assert(0 && "unhandled state");
-        SET_ERRNO(HPE_INVALID_INTERNAL_STATE);
+        CROW_SET_ERRNO(HPE_INVALID_INTERNAL_STATE);
         goto error;
     }
   }
@@ -5314,7 +5826,7 @@ static const int8_t unhex[256] =
    *
    * We use the NOADVANCE() variety of callbacks here because 'p' has already
    * overflowed 'data' and this allows us to correct for the off-by-one that
-   * we'd otherwise have (since CALLBACK_DATA() is meant to be run with a 'p'
+   * we'd otherwise have (since CROW_CALLBACK_DATA() is meant to be run with a 'p'
    * value that's in-bounds).
    */
 
@@ -5324,17 +5836,17 @@ static const int8_t unhex[256] =
           (body_mark ? 1 : 0) +
           (status_mark ? 1 : 0)) <= 1);
 
-  CALLBACK_DATA_NOADVANCE(header_field);
-  CALLBACK_DATA_NOADVANCE(header_value);
-  CALLBACK_DATA_NOADVANCE(url);
-  CALLBACK_DATA_NOADVANCE(body);
-  CALLBACK_DATA_NOADVANCE(status);
+  CROW_CALLBACK_DATA_NOADVANCE(header_field);
+  CROW_CALLBACK_DATA_NOADVANCE(header_value);
+  CROW_CALLBACK_DATA_NOADVANCE(url);
+  CROW_CALLBACK_DATA_NOADVANCE(body);
+  CROW_CALLBACK_DATA_NOADVANCE(status);
 
   return len;
 
 error:
-  if (HTTP_PARSER_ERRNO(parser) == HPE_OK) {
-    SET_ERRNO(HPE_UNKNOWN);
+  if (CROW_HTTP_PARSER_ERRNO(parser) == HPE_OK) {
+    CROW_SET_ERRNO(HPE_UNKNOWN);
   }
 
   return (p - data);
@@ -5357,7 +5869,7 @@ http_message_needs_eof (const http_parser *parser)
     return 0;
   }
 
-  if ((parser->flags & F_CHUNKED) || parser->content_length != ULLONG_MAX) {
+  if ((parser->flags & F_CHUNKED) || parser->content_length != CROW_ULLONG_MAX) {
     return 0;
   }
 
@@ -5389,11 +5901,11 @@ http_method_str (enum http_method m)
 {
 static const char *method_strings[] =
   {
-#define XX(num, name, string) #string,
-  HTTP_METHOD_MAP(XX)
-#undef XX
+#define CROW_XX(num, name, string) #string,
+  CROW_HTTP_METHOD_MAP(CROW_XX)
+#undef CROW_XX
   };
-  return ELEM_AT(method_strings, m, "<unknown>");
+  return CROW_ELEM_AT(method_strings, m, "<unknown>");
 }
 
 
@@ -5411,14 +5923,14 @@ http_parser_init (http_parser *parser, enum http_parser_type t)
 inline const char *
 http_errno_name(enum http_errno err) {
 /* Map errno values to strings for human-readable output */
-#define HTTP_STRERROR_GEN(n, s) { "HPE_" #n, s },
+#define CROW_HTTP_STRERROR_GEN(n, s) { "HPE_" #n, s },
 static struct {
   const char *name;
   const char *description;
 } http_strerror_tab[] = {
-  HTTP_ERRNO_MAP(HTTP_STRERROR_GEN)
+  CROW_HTTP_ERRNO_MAP(CROW_HTTP_STRERROR_GEN)
 };
-#undef HTTP_STRERROR_GEN
+#undef CROW_HTTP_STRERROR_GEN
   assert(err < (sizeof(http_strerror_tab)/sizeof(http_strerror_tab[0])));
   return http_strerror_tab[err].name;
 }
@@ -5426,14 +5938,14 @@ static struct {
 inline const char *
 http_errno_description(enum http_errno err) {
 /* Map errno values to strings for human-readable output */
-#define HTTP_STRERROR_GEN(n, s) { "HPE_" #n, s },
+#define CROW_HTTP_STRERROR_GEN(n, s) { "HPE_" #n, s },
 static struct {
   const char *name;
   const char *description;
 } http_strerror_tab[] = {
-  HTTP_ERRNO_MAP(HTTP_STRERROR_GEN)
+  CROW_HTTP_ERRNO_MAP(CROW_HTTP_STRERROR_GEN)
 };
-#undef HTTP_STRERROR_GEN
+#undef CROW_HTTP_STRERROR_GEN
   assert(err < (sizeof(http_strerror_tab)/sizeof(http_strerror_tab[0])));
   return http_strerror_tab[err].description;
 }
@@ -5447,7 +5959,7 @@ http_parse_host_char(enum http_host_state s, const char ch) {
         return s_http_host_start;
       }
 
-      if (IS_USERINFO_CHAR(ch)) {
+      if (CROW_IS_USERINFO_CHAR(ch)) {
         return s_http_userinfo;
       }
       break;
@@ -5457,14 +5969,14 @@ http_parse_host_char(enum http_host_state s, const char ch) {
         return s_http_host_v6_start;
       }
 
-      if (IS_HOST_CHAR(ch)) {
+      if (CROW_IS_HOST_CHAR(ch)) {
         return s_http_host;
       }
 
       break;
 
     case s_http_host:
-      if (IS_HOST_CHAR(ch)) {
+      if (CROW_IS_HOST_CHAR(ch)) {
         return s_http_host;
       }
 
@@ -5483,7 +5995,7 @@ http_parse_host_char(enum http_host_state s, const char ch) {
 
     /* FALLTHROUGH */
     case s_http_host_v6_start:
-      if (IS_HEX(ch) || ch == ':' || ch == '.') {
+      if (CROW_IS_HEX(ch) || ch == ':' || ch == '.') {
         return s_http_host_v6;
       }
 
@@ -5491,7 +6003,7 @@ http_parse_host_char(enum http_host_state s, const char ch) {
 
     case s_http_host_port:
     case s_http_host_port_start:
-      if (IS_NUM(ch)) {
+      if (CROW_IS_NUM(ch)) {
         return s_http_host_port;
       }
 
@@ -5681,9 +6193,9 @@ http_parser_pause(http_parser *parser, int paused) {
    * state. In non-debug builds, there's not much that we can do about this
    * other than ignore it.
    */
-  if (HTTP_PARSER_ERRNO(parser) == HPE_OK ||
-      HTTP_PARSER_ERRNO(parser) == HPE_PAUSED) {
-    SET_ERRNO((paused) ? HPE_PAUSED : HPE_OK);
+  if (CROW_HTTP_PARSER_ERRNO(parser) == HPE_OK ||
+      CROW_HTTP_PARSER_ERRNO(parser) == HPE_PAUSED) {
+    CROW_SET_ERRNO((paused) ? HPE_PAUSED : HPE_OK);
   } else {
     assert(0 && "Attempting to pause parser in error state");
   }
@@ -5696,45 +6208,45 @@ http_body_is_final(const struct http_parser *parser) {
 
 inline unsigned long
 http_parser_version(void) {
-  return HTTP_PARSER_VERSION_MAJOR * 0x10000 |
-         HTTP_PARSER_VERSION_MINOR * 0x00100 |
-         HTTP_PARSER_VERSION_PATCH * 0x00001;
+  return CROW_HTTP_PARSER_VERSION_MAJOR * 0x10000 |
+         CROW_HTTP_PARSER_VERSION_MINOR * 0x00100 |
+         CROW_HTTP_PARSER_VERSION_PATCH * 0x00001;
 }
 
-#undef HTTP_METHOD_MAP
-#undef HTTP_ERRNO_MAP
-#undef SET_ERRNO
-#undef CALLBACK_NOTIFY_
-#undef CALLBACK_NOTIFY
-#undef CALLBACK_NOTIFY_NOADVANCE
-#undef CALLBACK_DATA_
-#undef CALLBACK_DATA
-#undef CALLBACK_DATA_NOADVANCE
-#undef MARK
-#undef PROXY_CONNECTION
-#undef CONNECTION
-#undef CONTENT_LENGTH
-#undef TRANSFER_ENCODING
-#undef UPGRADE
-#undef CHUNKED
-#undef KEEP_ALIVE
-#undef CLOSE
-#undef PARSING_HEADER
-#undef CR
-#undef LF
-#undef LOWER
-#undef IS_ALPHA
-#undef IS_NUM
-#undef IS_ALPHANUM
-#undef IS_HEX
-#undef IS_MARK
-#undef IS_USERINFO_CHAR
-#undef TOKEN
-#undef IS_URL_CHAR
-#undef IS_HOST_CHAR
-#undef start_state
-#undef STRICT_CHECK
-#undef NEW_MESSAGE
+#undef CROW_HTTP_METHOD_MAP
+#undef CROW_HTTP_ERRNO_MAP
+#undef CROW_SET_ERRNO
+#undef CROW_CALLBACK_NOTIFY_
+#undef CROW_CALLBACK_NOTIFY
+#undef CROW_CALLBACK_NOTIFY_NOADVANCE
+#undef CROW_CALLBACK_DATA_
+#undef CROW_CALLBACK_DATA
+#undef CROW_CALLBACK_DATA_NOADVANCE
+#undef CROW_MARK
+#undef CROW_PROXY_CONNECTION
+#undef CROW_CONNECTION
+#undef CROW_CONTENT_LENGTH
+#undef CROW_TRANSFER_ENCODING
+#undef CROW_UPGRADE
+#undef CROW_CHUNKED
+#undef CROW_KEEP_ALIVE
+#undef CROW_CLOSE
+#undef CROW_PARSING_HEADER
+#undef CROW_CR
+#undef CROW_LF
+#undef CROW_LOWER
+#undef CROW_IS_ALPHA
+#undef CROW_IS_NUM
+#undef CROW_IS_ALPHANUM
+#undef CROW_IS_HEX
+#undef CROW_IS_MARK
+#undef CROW_IS_USERINFO_CHAR
+#undef CROW_TOKEN
+#undef CROW_IS_URL_CHAR
+#undef CROW_IS_HOST_CHAR
+#undef CROW_start_state
+#undef CROW_STRICT_CHECK
+#undef CROW_NEW_MESSAGE
 
 #ifdef __cplusplus
 }
@@ -5841,7 +6353,8 @@ namespace crow
 {
     enum class HTTPMethod
     {
-        DELETE,
+#ifndef DELETE
+        DELETE = 0,
         GET,
         HEAD,
         POST,
@@ -5849,28 +6362,52 @@ namespace crow
         CONNECT,
         OPTIONS,
         TRACE,
+        PATCH,
+        PURGE,
+#endif
+
+        Delete = 0,
+        Get,
+        Head,
+        Post,
+        Put,
+        Connect,
+        Options,
+        Trace,
+        Patch,
+        Purge,
+
+
+        InternalMethodCount,
+        // should not add an item below this line: used for array count
     };
 
     inline std::string method_name(HTTPMethod method)
     {
         switch(method)
         {
-            case HTTPMethod::DELETE:
+            case HTTPMethod::Delete:
                 return "DELETE";
-            case HTTPMethod::GET:
+            case HTTPMethod::Get:
                 return "GET";
-            case HTTPMethod::HEAD:
+            case HTTPMethod::Head:
                 return "HEAD";
-            case HTTPMethod::POST:
+            case HTTPMethod::Post:
                 return "POST";
-            case HTTPMethod::PUT:
+            case HTTPMethod::Put:
                 return "PUT";
-            case HTTPMethod::CONNECT:
+            case HTTPMethod::Connect:
                 return "CONNECT";
-            case HTTPMethod::OPTIONS:
+            case HTTPMethod::Options:
                 return "OPTIONS";
-            case HTTPMethod::TRACE:
+            case HTTPMethod::Trace:
                 return "TRACE";
+            case HTTPMethod::Patch:
+                return "PATCH";
+            case HTTPMethod::Purge:
+                return "PURGE";
+            default:
+                return "invalid";
         }
         return "invalid";
     }
@@ -5941,19 +6478,21 @@ namespace crow
 }
 
 #ifndef CROW_MSVC_WORKAROUND
-constexpr crow::HTTPMethod operator "" _method(const char* str, size_t len)
+constexpr crow::HTTPMethod operator "" _method(const char* str, size_t /*len*/)
 {
     return
-        crow::black_magic::is_equ_p(str, "GET", 3) ? crow::HTTPMethod::GET :
-        crow::black_magic::is_equ_p(str, "DELETE", 6) ? crow::HTTPMethod::DELETE :
-        crow::black_magic::is_equ_p(str, "HEAD", 4) ? crow::HTTPMethod::HEAD :
-        crow::black_magic::is_equ_p(str, "POST", 4) ? crow::HTTPMethod::POST :
-        crow::black_magic::is_equ_p(str, "PUT", 3) ? crow::HTTPMethod::PUT :
-        crow::black_magic::is_equ_p(str, "OPTIONS", 7) ? crow::HTTPMethod::OPTIONS :
-        crow::black_magic::is_equ_p(str, "CONNECT", 7) ? crow::HTTPMethod::CONNECT :
-        crow::black_magic::is_equ_p(str, "TRACE", 5) ? crow::HTTPMethod::TRACE :
+        crow::black_magic::is_equ_p(str, "GET", 3) ? crow::HTTPMethod::Get :
+        crow::black_magic::is_equ_p(str, "DELETE", 6) ? crow::HTTPMethod::Delete :
+        crow::black_magic::is_equ_p(str, "HEAD", 4) ? crow::HTTPMethod::Head :
+        crow::black_magic::is_equ_p(str, "POST", 4) ? crow::HTTPMethod::Post :
+        crow::black_magic::is_equ_p(str, "PUT", 3) ? crow::HTTPMethod::Put :
+        crow::black_magic::is_equ_p(str, "OPTIONS", 7) ? crow::HTTPMethod::Options :
+        crow::black_magic::is_equ_p(str, "CONNECT", 7) ? crow::HTTPMethod::Connect :
+        crow::black_magic::is_equ_p(str, "TRACE", 5) ? crow::HTTPMethod::Trace :
+        crow::black_magic::is_equ_p(str, "PATCH", 5) ? crow::HTTPMethod::Patch :
+        crow::black_magic::is_equ_p(str, "PURGE", 5) ? crow::HTTPMethod::Purge :
         throw std::runtime_error("invalid http method");
-};
+}
 #endif
 
 
@@ -5997,6 +6536,8 @@ namespace crow
 
 #pragma once
 
+#include <boost/asio.hpp>
+
 
 
 
@@ -6017,6 +6558,8 @@ namespace crow
         return empty;
     }
 
+	struct DetachHelper;
+
     struct request
     {
         HTTPMethod method;
@@ -6027,9 +6570,10 @@ namespace crow
         std::string body;
 
         void* middleware_context{};
+        boost::asio::io_service* io_service{};
 
         request()
-            : method(HTTPMethod::GET)
+            : method(HTTPMethod::Get)
         {
         }
 
@@ -6048,7 +6592,549 @@ namespace crow
             return crow::get_header_value(headers, key);
         }
 
+        template<typename CompletionHandler>
+        void post(CompletionHandler handler)
+        {
+            io_service->post(handler);
+        }
+
+        template<typename CompletionHandler>
+        void dispatch(CompletionHandler handler)
+        {
+            io_service->dispatch(handler);
+        }
+
     };
+}
+
+
+
+#pragma once
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/array.hpp>
+
+
+
+
+
+
+
+namespace crow
+{
+    namespace websocket
+    {
+        enum class WebSocketReadState
+        {
+            MiniHeader,
+            Len16,
+            Len64,
+            Mask,
+            Payload,
+        };
+
+		struct connection
+		{
+            virtual void send_binary(const std::string& msg) = 0;
+            virtual void send_text(const std::string& msg) = 0;
+            virtual void close(const std::string& msg = "quit") = 0;
+            virtual ~connection(){}
+
+            void userdata(void* u) { userdata_ = u; }
+            void* userdata() { return userdata_; }
+
+        private:
+            void* userdata_;
+		};
+
+		template <typename Adaptor>
+        class Connection : public connection
+        {
+			public:
+				Connection(const crow::request& req, Adaptor&& adaptor, 
+						std::function<void(crow::websocket::connection&)> open_handler,
+						std::function<void(crow::websocket::connection&, const std::string&, bool)> message_handler,
+						std::function<void(crow::websocket::connection&, const std::string&)> close_handler,
+						std::function<void(crow::websocket::connection&)> error_handler,
+						std::function<bool(const crow::request&)> accept_handler)
+					: adaptor_(std::move(adaptor)), open_handler_(std::move(open_handler)), message_handler_(std::move(message_handler)), close_handler_(std::move(close_handler)), error_handler_(std::move(error_handler))
+					, accept_handler_(std::move(accept_handler))
+				{
+					if (!boost::iequals(req.get_header_value("upgrade"), "websocket"))
+					{
+						adaptor.close();
+						delete this;
+						return;
+					}
+
+					if (accept_handler_)
+					{
+						if (!accept_handler_(req))
+						{
+							adaptor.close();
+							delete this;
+							return;
+						}
+					}
+
+					// Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+					// Sec-WebSocket-Version: 13
+                    std::string magic = req.get_header_value("Sec-WebSocket-Key") +  "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+                    sha1::SHA1 s;
+                    s.processBytes(magic.data(), magic.size());
+                    uint8_t digest[20];
+                    s.getDigestBytes(digest);   
+                    start(crow::utility::base64encode((char*)digest, 20));
+				}
+
+                template<typename CompletionHandler>
+                void dispatch(CompletionHandler handler)
+                {
+                    adaptor_.get_io_service().dispatch(handler);
+                }
+
+                template<typename CompletionHandler>
+                void post(CompletionHandler handler)
+                {
+                    adaptor_.get_io_service().post(handler);
+                }
+
+                void send_pong(const std::string& msg)
+                {
+                    dispatch([this, msg]{
+                        char buf[3] = "\x8A\x00";
+                        buf[1] += msg.size();
+                        write_buffers_.emplace_back(buf, buf+2);
+                        write_buffers_.emplace_back(msg);
+                        do_write();
+                    });
+                }
+
+                void send_binary(const std::string& msg) override
+                {
+                    dispatch([this, msg]{
+                        auto header = build_header(2, msg.size());
+                        write_buffers_.emplace_back(std::move(header));
+                        write_buffers_.emplace_back(msg);
+                        do_write();
+                    });
+                }
+
+                void send_text(const std::string& msg) override
+                {
+                    dispatch([this, msg]{
+                        auto header = build_header(1, msg.size());
+                        write_buffers_.emplace_back(std::move(header));
+                        write_buffers_.emplace_back(msg);
+                        do_write();
+                    });
+                }
+
+                void close(const std::string& msg) override
+                {
+                    dispatch([this, msg]{
+                        has_sent_close_ = true;
+                        if (has_recv_close_ && !is_close_handler_called_)
+                        {
+                            is_close_handler_called_ = true;
+                            if (close_handler_)
+                                close_handler_(*this, msg);
+                        }
+                        auto header = build_header(0x8, msg.size());
+                        write_buffers_.emplace_back(std::move(header));
+                        write_buffers_.emplace_back(msg);
+                        do_write();
+                    });
+                }
+
+            protected:
+
+                std::string build_header(int opcode, size_t size)
+                {
+                    char buf[2+8] = "\x80\x00";
+                    buf[0] += opcode;
+                    if (size < 126)
+                    {
+                        buf[1] += size;
+                        return {buf, buf+2};
+                    }
+                    else if (size < 0x10000)
+                    {
+                        buf[1] += 126;
+                        *(uint16_t*)(buf+2) = htons((uint16_t)size);
+                        return {buf, buf+4};
+                    }
+                    else
+                    {
+                        buf[1] += 127;
+                        *reinterpret_cast<uint64_t*>(buf+2) = ((1==htonl(1)) ? static_cast<uint64_t>(size) : (static_cast<uint64_t>(htonl((size) & 0xFFFFFFFF)) << 32) | htonl(static_cast<uint64_t>(size) >> 32));
+                        return {buf, buf+10};
+                    }
+                }
+
+                void start(std::string&& hello)
+                {
+                    static std::string header = "HTTP/1.1 101 Switching Protocols\r\n"
+                        "Upgrade: websocket\r\n"
+                        "Connection: Upgrade\r\n"
+                        "Sec-WebSocket-Accept: ";
+                    static std::string crlf = "\r\n";
+                    write_buffers_.emplace_back(header);
+                    write_buffers_.emplace_back(std::move(hello));
+                    write_buffers_.emplace_back(crlf);
+                    write_buffers_.emplace_back(crlf);
+                    do_write();
+                    if (open_handler_)
+                        open_handler_(*this);
+                    do_read();
+                }
+
+                void do_read()
+                {
+                    is_reading = true;
+                    switch(state_)
+                    {
+                        case WebSocketReadState::MiniHeader:
+                            {
+                                //boost::asio::async_read(adaptor_.socket(), boost::asio::buffer(&mini_header_, 1), 
+                                adaptor_.socket().async_read_some(boost::asio::buffer(&mini_header_, 2), 
+                                    [this](const boost::system::error_code& ec, std::size_t 
+#ifdef CROW_ENABLE_DEBUG
+                                        bytes_transferred
+#endif
+                                        )
+
+                                    {
+                                        is_reading = false;
+                                        mini_header_ = ntohs(mini_header_);
+#ifdef CROW_ENABLE_DEBUG
+                                        
+                                        if (!ec && bytes_transferred != 2)
+                                        {
+                                            throw std::runtime_error("WebSocket:MiniHeader:async_read fail:asio bug?");
+                                        }
+#endif
+
+                                        if (!ec && ((mini_header_ & 0x80) == 0x80))
+                                        {
+                                            if ((mini_header_ & 0x7f) == 127)
+                                            {
+                                                state_ = WebSocketReadState::Len64;
+                                            }
+                                            else if ((mini_header_ & 0x7f) == 126)
+                                            {
+                                                state_ = WebSocketReadState::Len16;
+                                            }
+                                            else
+                                            {
+                                                remaining_length_ = mini_header_ & 0x7f;
+                                                state_ = WebSocketReadState::Mask;
+                                            }
+                                            do_read();
+                                        }
+                                        else
+                                        {
+                                            close_connection_ = true;
+                                            adaptor_.close();
+                                            if (error_handler_)
+                                                error_handler_(*this);
+                                            check_destroy();
+                                        }
+                                    });
+                            }
+                            break;
+                        case WebSocketReadState::Len16:
+                            {
+                                remaining_length_ = 0;
+                                remaining_length16_ = 0;
+                                boost::asio::async_read(adaptor_.socket(), boost::asio::buffer(&remaining_length16_, 2), 
+                                    [this](const boost::system::error_code& ec, std::size_t 
+#ifdef CROW_ENABLE_DEBUG
+                                        bytes_transferred
+#endif
+                                        ) 
+                                    {
+                                        is_reading = false;
+                                        remaining_length16_ = ntohs(remaining_length16_);
+                                        remaining_length_ = remaining_length16_;
+#ifdef CROW_ENABLE_DEBUG
+                                        if (!ec && bytes_transferred != 2)
+                                        {
+                                            throw std::runtime_error("WebSocket:Len16:async_read fail:asio bug?");
+                                        }
+#endif
+
+                                        if (!ec)
+                                        {
+                                            state_ = WebSocketReadState::Mask;
+                                            do_read();
+                                        }
+                                        else
+                                        {
+                                            close_connection_ = true;
+                                            adaptor_.close();
+                                            if (error_handler_)
+                                                error_handler_(*this);
+                                            check_destroy();
+                                        }
+                                    });
+                            }
+                            break;
+                        case WebSocketReadState::Len64:
+                            {
+                                boost::asio::async_read(adaptor_.socket(), boost::asio::buffer(&remaining_length_, 8), 
+                                    [this](const boost::system::error_code& ec, std::size_t 
+#ifdef CROW_ENABLE_DEBUG
+                                        bytes_transferred
+#endif
+                                        ) 
+                                    {
+                                        is_reading = false;
+                                        remaining_length_ = ((1==ntohl(1)) ? (remaining_length_) : ((uint64_t)ntohl((remaining_length_) & 0xFFFFFFFF) << 32) | ntohl((remaining_length_) >> 32));
+#ifdef CROW_ENABLE_DEBUG
+                                        if (!ec && bytes_transferred != 8)
+                                        {
+                                            throw std::runtime_error("WebSocket:Len16:async_read fail:asio bug?");
+                                        }
+#endif
+
+                                        if (!ec)
+                                        {
+                                            state_ = WebSocketReadState::Mask;
+                                            do_read();
+                                        }
+                                        else
+                                        {
+                                            close_connection_ = true;
+                                            adaptor_.close();
+                                            if (error_handler_)
+                                                error_handler_(*this);
+                                            check_destroy();
+                                        }
+                                    });
+                            }
+                            break;
+                        case WebSocketReadState::Mask:
+                                boost::asio::async_read(adaptor_.socket(), boost::asio::buffer((char*)&mask_, 4), 
+                                    [this](const boost::system::error_code& ec, std::size_t 
+#ifdef CROW_ENABLE_DEBUG 
+                                        bytes_transferred
+#endif
+                                    )
+                                    {
+                                        is_reading = false;
+#ifdef CROW_ENABLE_DEBUG
+                                        if (!ec && bytes_transferred != 4)
+                                        {
+                                            throw std::runtime_error("WebSocket:Mask:async_read fail:asio bug?");
+                                        }
+#endif
+
+                                        if (!ec)
+                                        {
+                                            state_ = WebSocketReadState::Payload;
+                                            do_read();
+                                        }
+                                        else
+                                        {
+                                            close_connection_ = true;
+                                            if (error_handler_)
+                                                error_handler_(*this);
+                                            adaptor_.close();
+                                        }
+                                    });
+                            break;
+                        case WebSocketReadState::Payload:
+                            {
+                                size_t to_read = buffer_.size();
+                                if (remaining_length_ < to_read)
+                                    to_read = remaining_length_;
+                                adaptor_.socket().async_read_some( boost::asio::buffer(buffer_, to_read), 
+                                    [this](const boost::system::error_code& ec, std::size_t bytes_transferred)
+                                    {
+                                        is_reading = false;
+
+                                        if (!ec)
+                                        {
+                                            fragment_.insert(fragment_.end(), buffer_.begin(), buffer_.begin() + bytes_transferred);
+                                            remaining_length_ -= bytes_transferred;
+                                            if (remaining_length_ == 0)
+                                            {
+                                                handle_fragment();
+                                                state_ = WebSocketReadState::MiniHeader;
+                                                do_read();
+                                            }
+                                        }
+                                        else
+                                        {
+                                            close_connection_ = true;
+                                            if (error_handler_)
+                                                error_handler_(*this);
+                                            adaptor_.close();
+                                        }
+                                    });
+                            }
+                            break;
+                    }
+                }
+
+                bool is_FIN()
+                {
+                    return mini_header_ & 0x8000;
+                }
+
+                int opcode()
+                {
+                    return (mini_header_ & 0x0f00) >> 8;
+                }
+
+                void handle_fragment()
+                {
+                    for(decltype(fragment_.length()) i = 0; i < fragment_.length(); i ++)
+                    {
+                        fragment_[i] ^= ((char*)&mask_)[i%4];
+                    }
+                    switch(opcode())
+                    {
+                        case 0: // Continuation
+                            {
+                                message_ += fragment_;
+                                if (is_FIN())
+                                {
+                                    if (message_handler_)
+                                        message_handler_(*this, message_, is_binary_);
+                                    message_.clear();
+                                }
+                            }
+                        case 1: // Text
+                            {
+                                is_binary_ = false;
+                                message_ += fragment_;
+                                if (is_FIN())
+                                {
+                                    if (message_handler_)
+                                        message_handler_(*this, message_, is_binary_);
+                                    message_.clear();
+                                }
+                            }
+                            break;
+                        case 2: // Binary
+                            {
+                                is_binary_ = true;
+                                message_ += fragment_;
+                                if (is_FIN())
+                                {
+                                    if (message_handler_)
+                                        message_handler_(*this, message_, is_binary_);
+                                    message_.clear();
+                                }
+                            }
+                            break;
+                        case 0x8: // Close
+                            {
+                                has_recv_close_ = true;
+                                if (!has_sent_close_)
+                                {
+                                    close(fragment_);
+                                }
+                                else
+                                {
+                                    adaptor_.close();
+                                    close_connection_ = true;
+                                    if (!is_close_handler_called_)
+                                    {
+                                        if (close_handler_)
+                                            close_handler_(*this, fragment_);
+                                        is_close_handler_called_ = true;
+                                    }
+                                    check_destroy();
+                                }
+                            }
+                            break;
+                        case 0x9: // Ping
+                            {
+                                send_pong(fragment_);
+                            }
+                            break;
+                        case 0xA: // Pong
+                            {
+                                pong_received_ = true;
+                            }
+                            break;
+                    }
+
+                    fragment_.clear();
+                }
+
+                void do_write()
+                {
+                    if (sending_buffers_.empty())
+                    {
+                        sending_buffers_.swap(write_buffers_);
+                        std::vector<boost::asio::const_buffer> buffers;
+                        buffers.reserve(sending_buffers_.size());
+                        for(auto& s:sending_buffers_)
+                        {
+                            buffers.emplace_back(boost::asio::buffer(s));
+                        }
+                        boost::asio::async_write(adaptor_.socket(), buffers, 
+                            [&](const boost::system::error_code& ec, std::size_t /*bytes_transferred*/)
+                            {
+                                sending_buffers_.clear();
+                                if (!ec && !close_connection_)
+                                {
+                                    if (!write_buffers_.empty())
+                                        do_write();
+                                    if (has_sent_close_)
+                                        close_connection_ = true;
+                                }
+                                else
+                                {
+                                    close_connection_ = true;
+                                    check_destroy();
+                                }
+                            });
+                    }
+                }
+
+                void check_destroy()
+                {
+                    //if (has_sent_close_ && has_recv_close_)
+                    if (!is_close_handler_called_)
+                        if (close_handler_)
+                            close_handler_(*this, "uncleanly");
+                    if (sending_buffers_.empty() && !is_reading)
+                        delete this;
+                }
+			private:
+				Adaptor adaptor_;
+
+                std::vector<std::string> sending_buffers_;
+                std::vector<std::string> write_buffers_;
+
+                boost::array<char, 4096> buffer_;
+                bool is_binary_;
+                std::string message_;
+                std::string fragment_;
+                WebSocketReadState state_{WebSocketReadState::MiniHeader};
+                uint16_t remaining_length16_{0};
+                uint64_t remaining_length_{0};
+                bool close_connection_{false};
+                bool is_reading{false};
+                uint32_t mask_;
+                uint16_t mini_header_;
+                bool has_sent_close_{false};
+                bool has_recv_close_{false};
+                bool error_occured_{false};
+                bool pong_received_{false};
+                bool is_close_handler_called_{false};
+
+				std::function<void(crow::websocket::connection&)> open_handler_;
+				std::function<void(crow::websocket::connection&, const std::string&, bool)> message_handler_;
+				std::function<void(crow::websocket::connection&, const std::string&)> close_handler_;
+				std::function<void(crow::websocket::connection&)> error_handler_;
+				std::function<bool(const crow::request&)> accept_handler_;
+        };
+    }
 }
 
 
@@ -6058,7 +7144,6 @@ namespace crow
 #include <string>
 #include <unordered_map>
 #include <boost/algorithm/string.hpp>
-#include <boost/tokenizer.hpp>
 #include <algorithm>
 
 
@@ -6200,6 +7285,11 @@ namespace crow
             return request{(HTTPMethod)method, std::move(raw_url), std::move(url), std::move(url_params), std::move(headers), std::move(body)};
         }
 
+		bool is_upgrade() const
+		{
+			return upgrade;
+		}
+
         bool check_version(int major, int minor) const
         {
             return http_major == major && http_minor == minor;
@@ -6231,6 +7321,7 @@ namespace crow
 
 
 
+
 namespace crow
 {
     template <typename Adaptor, typename Handler, typename ... Middlewares>
@@ -6240,9 +7331,9 @@ namespace crow
         template <typename Adaptor, typename Handler, typename ... Middlewares>
         friend class crow::Connection;
 
+        int code{200};
         std::string body;
         json::wvalue json_value;
-        int code{200};
 
         // `headers' stores HTTP headers.
         ci_map headers;
@@ -6266,12 +7357,12 @@ namespace crow
         response() {}
         explicit response(int code) : code(code) {}
         response(std::string body) : body(std::move(body)) {}
-        response(json::wvalue&& json_value) : json_value(std::move(json_value)) 
+        response(json::wvalue&& json_value) : json_value(std::move(json_value))
         {
-            json_mode();    
+            json_mode();
         }
-        response(int code, std::string body) : body(std::move(body)), code(code) {}
-        response(const json::wvalue& json_value) : body(json::dump(json_value)) 
+        response(int code, std::string body) : code(code), body(std::move(body)) {}
+        response(const json::wvalue& json_value) : body(json::dump(json_value))
         {
             json_mode();
         }
@@ -6311,6 +7402,12 @@ namespace crow
             completed_ = false;
         }
 
+        void redirect(const std::string& location)
+        {
+            code = 301;
+            set_header("Location", location);
+        }
+
         void write(const std::string& body_part)
         {
             body += body_part;
@@ -6321,7 +7418,7 @@ namespace crow
             if (!completed_)
             {
                 completed_ = true;
-                
+
                 if (complete_request_handler_)
                 {
                     complete_request_handler_();
@@ -6344,7 +7441,7 @@ namespace crow
             bool completed_{};
             std::function<void()> complete_request_handler_;
             std::function<bool()> is_alive_helper_;
-            
+
             //In case of a JSON object, set the Content-Type header
             void json_mode()
             {
@@ -6376,6 +7473,8 @@ namespace crow
 
 
 
+
+
 namespace crow
 {
     class BaseRule
@@ -6391,19 +7490,52 @@ namespace crow
         }
         
         virtual void validate() = 0;
+        std::unique_ptr<BaseRule> upgrade()
+        {
+            if (rule_to_upgrade_)
+                return std::move(rule_to_upgrade_);
+            return {};
+        }
 
         virtual void handle(const request&, response&, const routing_params&) = 0;
+        virtual void handle_upgrade(const request&, response& res, SocketAdaptor&&) 
+        {
+            res = response(404);
+            res.end();
+        }
+#ifdef CROW_ENABLE_SSL
+        virtual void handle_upgrade(const request&, response& res, SSLAdaptor&&) 
+        {
+            res = response(404);
+            res.end();
+        }
+#endif
 
         uint32_t get_methods()
         {
             return methods_;
         }
 
+        template <typename F>
+        void foreach_method(F f)
+        {
+            for(uint32_t method = 0, method_bit = 1; method < (uint32_t)HTTPMethod::InternalMethodCount; method++, method_bit<<=1)
+            {
+                if (methods_ & method_bit)
+                    f(method);
+            }
+        }
+
+        const std::string& rule() { return rule_; }
+
     protected:
-        uint32_t methods_{1<<(int)HTTPMethod::GET};
+        uint32_t methods_{1<<(int)HTTPMethod::Get};
 
         std::string rule_;
         std::string name_;
+
+        std::unique_ptr<BaseRule> rule_to_upgrade_;
+
         friend class Router;
         template <typename T>
         friend struct RuleParameterTraits;
@@ -6496,7 +7628,7 @@ namespace crow
             struct Wrapped
             {
                 template <typename ... Args>
-                void set(Func f, typename std::enable_if<
+                void set_(Func f, typename std::enable_if<
                     !std::is_same<typename std::tuple_element<0, std::tuple<Args..., void>>::type, const request&>::value
                 , int>::type = 0)
                 {
@@ -6530,7 +7662,7 @@ namespace crow
                 };
 
                 template <typename ... Args>
-                void set(Func f, typename std::enable_if<
+                void set_(Func f, typename std::enable_if<
                         std::is_same<typename std::tuple_element<0, std::tuple<Args..., void>>::type, const request&>::value &&
                         !std::is_same<typename std::tuple_element<1, std::tuple<Args..., void, void>>::type, response&>::value
                         , int>::type = 0)
@@ -6545,7 +7677,7 @@ namespace crow
                 }
 
                 template <typename ... Args>
-                void set(Func f, typename std::enable_if<
+                void set_(Func f, typename std::enable_if<
                         std::is_same<typename std::tuple_element<0, std::tuple<Args..., void>>::type, const request&>::value &&
                         std::is_same<typename std::tuple_element<1, std::tuple<Args..., void, void>>::type, response&>::value
                         , int>::type = 0)
@@ -6595,10 +7727,90 @@ namespace crow
         }
     }
 
+    class WebSocketRule : public BaseRule
+    {
+        using self_t = WebSocketRule;
+    public:
+        WebSocketRule(std::string rule)
+            : BaseRule(std::move(rule))
+        {
+        }
+
+        void validate() override
+        {
+        }
+
+        void handle(const request&, response& res, const routing_params&) override
+        {
+            res = response(404);
+            res.end();
+        }
+
+        void handle_upgrade(const request& req, response&, SocketAdaptor&& adaptor) override 
+        {
+            new crow::websocket::Connection<SocketAdaptor>(req, std::move(adaptor), open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
+        }
+#ifdef CROW_ENABLE_SSL
+        void handle_upgrade(const request& req, response&, SSLAdaptor&& adaptor) override
+        {
+            new crow::websocket::Connection<SSLAdaptor>(req, std::move(adaptor), open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
+        }
+#endif
+
+        template <typename Func>
+        self_t& onopen(Func f)
+        {
+            open_handler_ = f;
+            return *this;
+        }
+
+        template <typename Func>
+        self_t& onmessage(Func f)
+        {
+            message_handler_ = f;
+            return *this;
+        }
+
+        template <typename Func>
+        self_t& onclose(Func f)
+        {
+            close_handler_ = f;
+            return *this;
+        }
+
+        template <typename Func>
+        self_t& onerror(Func f)
+        {
+            error_handler_ = f;
+            return *this;
+        }
+
+        template <typename Func>
+        self_t& onaccept(Func f)
+        {
+            accept_handler_ = f;
+            return *this;
+        }
+
+    protected:
+        std::function<void(crow::websocket::connection&)> open_handler_;
+        std::function<void(crow::websocket::connection&, const std::string&, bool)> message_handler_;
+        std::function<void(crow::websocket::connection&, const std::string&)> close_handler_;
+        std::function<void(crow::websocket::connection&)> error_handler_;
+        std::function<bool(const crow::request&)> accept_handler_;
+    };
+
     template <typename T>
     struct RuleParameterTraits
     {
         using self_t = T;
+        WebSocketRule& websocket() 
+        {
+            auto p =new WebSocketRule(((self_t*)this)->rule_);
+            ((self_t*)this)->rule_to_upgrade_.reset(p);
+            return *p;
+        }
+
         self_t& name(std::string name) noexcept
         {
             ((self_t*)this)->name_ = std::move(name);
@@ -6618,6 +7830,7 @@ namespace crow
             ((self_t*)this)->methods_ |= 1 << (int)method;
             return (self_t&)*this;
         }
+
     };
 
     class DynamicRule : public BaseRule, public RuleParameterTraits<DynamicRule>
@@ -6677,7 +7890,7 @@ namespace crow
                 throw std::runtime_error("route_dynamic: Handler type is mismatched with URL parameters: " + rule_);
             }
             auto ret = detail::routing_handler_call_helper::Wrapped<Func, typename function_t::template arg<Indices>...>();
-            ret.template set<
+            ret.template set_<
                 typename function_t::template arg<Indices>...
             >(std::move(f));
             return ret;
@@ -6705,7 +7918,7 @@ namespace crow
         {
         }
 
-        void validate()
+        void validate() override
         {
             if (!handler_)
             {
@@ -6723,10 +7936,16 @@ namespace crow
             static_assert(!std::is_same<void, decltype(f(std::declval<Args>()...))>::value, 
                 "Handler function cannot have void return type; valid return types: string, int, crow::resposne, crow::json::wvalue");
 
-                handler_ = [f = std::move(f)](const request&, response& res, Args ... args){
+            handler_ = (
+#ifdef CROW_CAN_USE_CPP14
+                [f = std::move(f)]
+#else
+                [f]
+#endif
+                (const request&, response& res, Args ... args){
                     res = response(f(args...));
                     res.end();
-                };
+                });
         }
 
         template <typename Func>
@@ -6742,10 +7961,16 @@ namespace crow
             static_assert(!std::is_same<void, decltype(f(std::declval<crow::request>(), std::declval<Args>()...))>::value, 
                 "Handler function cannot have void return type; valid return types: string, int, crow::resposne, crow::json::wvalue");
 
-                handler_ = [f = std::move(f)](const crow::request& req, crow::response& res, Args ... args){
+            handler_ = (
+#ifdef CROW_CAN_USE_CPP14
+                [f = std::move(f)]
+#else
+                [f]
+#endif
+                (const crow::request& req, crow::response& res, Args ... args){
                     res = response(f(req, args...));
                     res.end();
-                };
+                });
         }
 
         template <typename Func>
@@ -7126,15 +8351,14 @@ public:
     class Router
     {
     public:
-        Router() : rules_(2) 
+        Router()
         {
         }
 
         DynamicRule& new_rule_dynamic(const std::string& rule)
         {
             auto ruleObject = new DynamicRule(rule);
-
-            internal_add_rule_object(rule, ruleObject);
+            all_rules_.emplace_back(ruleObject);
 
             return *ruleObject;
         }
@@ -7143,54 +8367,78 @@ public:
         typename black_magic::arguments<N>::type::template rebind<TaggedRule>& new_rule_tagged(const std::string& rule)
         {
             using RuleT = typename black_magic::arguments<N>::type::template rebind<TaggedRule>;
-            auto ruleObject = new RuleT(rule);
 
-            internal_add_rule_object(rule, ruleObject);
+            auto ruleObject = new RuleT(rule);
+            all_rules_.emplace_back(ruleObject);
 
             return *ruleObject;
         }
 
         void internal_add_rule_object(const std::string& rule, BaseRule* ruleObject)
         {
-            rules_.emplace_back(ruleObject);
-            trie_.add(rule, rules_.size() - 1);
-
-            // directory case: 
-            //   request to `/about' url matches `/about/' rule 
+            bool has_trailing_slash = false;
+            std::string rule_without_trailing_slash;
             if (rule.size() > 1 && rule.back() == '/')
             {
-                std::string rule_without_trailing_slash = rule;
+                has_trailing_slash = true;
+                rule_without_trailing_slash = rule;
                 rule_without_trailing_slash.pop_back();
-                trie_.add(rule_without_trailing_slash, RULE_SPECIAL_REDIRECT_SLASH);
             }
+
+            ruleObject->foreach_method([&](int method)
+                    {
+                        per_methods_[method].rules.emplace_back(ruleObject);
+                        per_methods_[method].trie.add(rule, per_methods_[method].rules.size() - 1);
+
+                        // directory case: 
+                        //   request to `/about' url matches `/about/' rule 
+                        if (has_trailing_slash)
+                        {
+                            per_methods_[method].trie.add(rule_without_trailing_slash, RULE_SPECIAL_REDIRECT_SLASH);
+                        }
+                    });
+
         }
 
         void validate()
         {
-            trie_.validate();
-            for(auto& rule:rules_)
+            for(auto& rule:all_rules_)
             {
                 if (rule)
+                {
+                    auto upgraded = rule->upgrade();
+                    if (upgraded)
+                        rule = std::move(upgraded);
                     rule->validate();
+                    internal_add_rule_object(rule->rule(), rule.get());
+                }
+            }
+            for(auto& per_method:per_methods_)
+            {
+                per_method.trie.validate();
             }
         }
 
-        void handle(const request& req, response& res)
+        template <typename Adaptor> 
+        void handle_upgrade(const request& req, response& res, Adaptor&& adaptor)
         {
-            auto found = trie_.find(req.url);
+            if (req.method >= HTTPMethod::InternalMethodCount)
+                return;
+            auto& per_method = per_methods_[(int)req.method];
+            auto& trie = per_method.trie;
+            auto& rules = per_method.rules;
 
+            auto found = trie.find(req.url);
             unsigned rule_index = found.first;
-            CROW_LOG_DEBUG << "???" << rule_index;
-
             if (!rule_index)
             {
-                CROW_LOG_DEBUG << "Cannot match rules " << req.url;
+                CROW_LOG_DEBUG << "Cannot match rules " << req.url << ' ' << method_name(req.method);
                 res = response(404);
                 res.end();
                 return;
             }
 
-            if (rule_index >= rules_.size())
+            if (rule_index >= rules.size())
                 throw std::runtime_error("Trie internal structure corrupted!");
 
             if (rule_index == RULE_SPECIAL_REDIRECT_SLASH)
@@ -7211,20 +8459,76 @@ public:
                 return;
             }
 
-            if ((rules_[rule_index]->get_methods() & (1<<(uint32_t)req.method)) == 0)
+            CROW_LOG_DEBUG << "Matched rule (upgrade) '" << rules[rule_index]->rule_ << "' " << (uint32_t)req.method << " / " << rules[rule_index]->get_methods();
+
+            // any uncaught exceptions become 500s
+            try
             {
-                CROW_LOG_DEBUG << "Rule found but method mismatch: " << req.url << " with " << method_name(req.method) << "(" << (uint32_t)req.method << ") / " << rules_[rule_index]->get_methods();
+                rules[rule_index]->handle_upgrade(req, res, std::move(adaptor));
+            }
+            catch(std::exception& e)
+            {
+                CROW_LOG_ERROR << "An uncaught exception occurred: " << e.what();
+                res = response(500);
+                res.end();
+                return;   
+            }
+            catch(...)
+            {
+                CROW_LOG_ERROR << "An uncaught exception occurred. The type was unknown so no information was available.";
+                res = response(500);
+                res.end();
+                return;   
+            }
+        }
+
+        void handle(const request& req, response& res)
+        {
+            if (req.method >= HTTPMethod::InternalMethodCount)
+                return;
+            auto& per_method = per_methods_[(int)req.method];
+            auto& trie = per_method.trie;
+            auto& rules = per_method.rules;
+
+            auto found = trie.find(req.url);
+
+            unsigned rule_index = found.first;
+
+            if (!rule_index)
+            {
+                CROW_LOG_DEBUG << "Cannot match rules " << req.url << ' ' << method_name(req.method);
                 res = response(404);
                 res.end();
                 return;
             }
 
-            CROW_LOG_DEBUG << "Matched rule '" << rules_[rule_index]->rule_ << "' " << (uint32_t)req.method << " / " << rules_[rule_index]->get_methods();
+            if (rule_index >= rules.size())
+                throw std::runtime_error("Trie internal structure corrupted!");
+
+            if (rule_index == RULE_SPECIAL_REDIRECT_SLASH)
+            {
+                CROW_LOG_INFO << "Redirecting to a url with trailing slash: " << req.url;
+                res = response(301);
+
+                // TODO absolute url building
+                if (req.get_header_value("Host").empty())
+                {
+                    res.add_header("Location", req.url + "/");
+                }
+                else
+                {
+                    res.add_header("Location", "http://" + req.get_header_value("Host") + req.url + "/");
+                }
+                res.end();
+                return;
+            }
+
+            CROW_LOG_DEBUG << "Matched rule '" << rules[rule_index]->rule_ << "' " << (uint32_t)req.method << " / " << rules[rule_index]->get_methods();
 
             // any uncaught exceptions become 500s
             try
             {
-                rules_[rule_index]->handle(req, res, found.second);
+                rules[rule_index]->handle(req, res, found.second);
             }
             catch(std::exception& e)
             {
@@ -7244,12 +8548,24 @@ public:
 
         void debug_print()
         {
-            trie_.debug_print();
+            for(int i = 0; i < (int)HTTPMethod::InternalMethodCount; i ++)
+            {
+                CROW_LOG_DEBUG << method_name((HTTPMethod)i);
+                per_methods_[i].trie.debug_print();
+            }
         }
 
     private:
-        std::vector<std::unique_ptr<BaseRule>> rules_;
-        Trie trie_;
+        struct PerMethod
+        {
+            std::vector<BaseRule*> rules;
+            Trie trie;
+
+            // rule index 0, 1 has special meaning; preallocate it to avoid duplication.
+            PerMethod() : rules(2) {}
+        };
+        std::array<PerMethod, (int)HTTPMethod::InternalMethodCount> per_methods_;
+        std::vector<std::unique_ptr<BaseRule>> all_rules_;
     };
 }
 
@@ -7359,10 +8675,11 @@ namespace crow
             std::unordered_map<std::string, std::string> jar;
             std::unordered_map<std::string, std::string> cookies_to_add;
 
-            std::string get_cookie(const std::string& key)
+            std::string get_cookie(const std::string& key) const
             {
-                if (jar.count(key))
-                    return jar[key];
+                auto cookie = jar.find(key);
+                if (cookie != jar.end())
+                    return cookie->second;
                 return {};
             }
 
@@ -7397,77 +8714,33 @@ namespace crow
                 if (pos == cookies.size())
                     break;
 
-                std::string value;
+                size_t pos_semicolon = cookies.find(';', pos);
+                std::string value = cookies.substr(pos, pos_semicolon-pos);
 
-                if (cookies[pos] == '"')
+                boost::trim(value);
+                if (value[0] == '"' && value[value.size()-1] == '"')
                 {
-                    int dquote_meet_count = 0;
-                    pos ++;
-                    size_t pos_dquote = pos-1;
-                    do
-                    {
-                        pos_dquote = cookies.find('"', pos_dquote+1);
-                        dquote_meet_count ++;
-                    } while(pos_dquote < cookies.size() && cookies[pos_dquote-1] == '\\');
-                    if (pos_dquote == cookies.npos)
-                        break;
-
-                    if (dquote_meet_count == 1)
-                        value = cookies.substr(pos, pos_dquote - pos);
-                    else
-                    {
-                        value.clear();
-                        value.reserve(pos_dquote-pos);
-                        for(size_t p = pos; p < pos_dquote; p++)
-                        {
-                            // FIXME minimal escaping
-                            if (cookies[p] == '\\' && p + 1 < pos_dquote)
-                            {
-                                p++;
-                                if (cookies[p] == '\\' || cookies[p] == '"')
-                                    value += cookies[p];
-                                else
-                                {
-                                    value += '\\';
-                                    value += cookies[p];
-                                }
-                            }
-                            else
-                                value += cookies[p];
-                        }
-                    }
-
-                    ctx.jar.emplace(std::move(name), std::move(value));
-                    pos = cookies.find(";", pos_dquote+1);
-                    if (pos == cookies.npos)
-                        break;
-                    pos++;
-                    while(pos < cookies.size() && cookies[pos] == ' ') pos++;
-                    if (pos == cookies.size())
-                        break;
+                    value = value.substr(1, value.size()-2);
                 }
-                else
-                {
-                    size_t pos_semicolon = cookies.find(';', pos);
-                    value = cookies.substr(pos, pos_semicolon - pos);
-                    boost::trim(value);
-                    ctx.jar.emplace(std::move(name), std::move(value));
-                    pos = pos_semicolon;
-                    if (pos == cookies.npos)
-                        break;
-                    pos ++;
-                    while(pos < cookies.size() && cookies[pos] == ' ') pos++;
-                    if (pos == cookies.size())
-                        break;
-                }
+
+                ctx.jar.emplace(std::move(name), std::move(value));
+
+                pos = pos_semicolon;
+                if (pos == cookies.npos)
+                    break;
+                pos++;
+                while(pos < cookies.size() && cookies[pos] == ' ') pos++;
             }
         }
 
-        void after_handle(request& req, response& res, context& ctx)
+        void after_handle(request& /*req*/, response& res, context& ctx)
         {
             for(auto& cookie:ctx.cookies_to_add)
             {
-                res.add_header("Set-Cookie", cookie.first + "=" + cookie.second);
+                if (cookie.second.empty())
+                    res.add_header("Set-Cookie", cookie.first + "=\"\"");
+                else
+                    res.add_header("Set-Cookie", cookie.first + "=" + cookie.second);
             }
         }
     };
@@ -7607,28 +8880,28 @@ namespace crow
 
         template <typename MW, typename Context, typename ParentContext>
         typename std::enable_if<!is_before_handle_arity_3_impl<MW>::value>::type
-        before_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& parent_ctx)
+        before_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& /*parent_ctx*/)
         {
             mw.before_handle(req, res, ctx.template get<MW>(), ctx);
         }
 
         template <typename MW, typename Context, typename ParentContext>
         typename std::enable_if<is_before_handle_arity_3_impl<MW>::value>::type
-        before_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& parent_ctx)
+        before_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& /*parent_ctx*/)
         {
             mw.before_handle(req, res, ctx.template get<MW>());
         }
 
         template <typename MW, typename Context, typename ParentContext>
         typename std::enable_if<!is_after_handle_arity_3_impl<MW>::value>::type
-        after_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& parent_ctx)
+        after_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& /*parent_ctx*/)
         {
             mw.after_handle(req, res, ctx.template get<MW>(), ctx);
         }
 
         template <typename MW, typename Context, typename ParentContext>
         typename std::enable_if<is_after_handle_arity_3_impl<MW>::value>::type
-        after_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& parent_ctx)
+        after_handler_call(MW& mw, request& req, response& res, Context& ctx, ParentContext& /*parent_ctx*/)
         {
             mw.after_handle(req, res, ctx.template get<MW>());
         }
@@ -7655,14 +8928,14 @@ namespace crow
         }
 
         template <int N, typename Context, typename Container>
-        bool middleware_call_helper(Container& middlewares, request& req, response& res, Context& ctx)
+        bool middleware_call_helper(Container& /*middlewares*/, request& /*req*/, response& /*res*/, Context& /*ctx*/)
         {
             return false;
         }
 
         template <int N, typename Context, typename Container>
         typename std::enable_if<(N<0)>::type 
-        after_handlers_call_helper(Container& middlewares, Context& context, request& req, response& res)
+        after_handlers_call_helper(Container& /*middlewares*/, Context& /*context*/, request& /*req*/, response& /*res*/)
         {
         }
 
@@ -7685,7 +8958,7 @@ namespace crow
     }
 
 #ifdef CROW_ENABLE_DEBUG
-    static int connectionCount;
+    static std::atomic<int> connectionCount;
 #endif
     template <typename Adaptor, typename Handler, typename ... Middlewares>
     class Connection
@@ -7765,6 +9038,7 @@ namespace crow
 
             req_ = std::move(parser_.to_request());
             request& req = req_;
+
             if (parser_.check_version(1, 0))
             {
                 // HTTP/1.0
@@ -7791,6 +9065,20 @@ namespace crow
                     is_invalid_request = true;
                     res = response(400);
                 }
+				if (parser_.is_upgrade())
+				{
+					if (req.get_header_value("upgrade") == "h2c")
+					{
+						// TODO HTTP/2
+                        // currently, ignore upgrade header
+					}
+                    else
+                    {
+                        close_connection_ = true;
+                        handler_->handle_upgrade(req, res, std::move(adaptor_));
+                        return;
+                    }
+				}
             }
 
             CROW_LOG_INFO << "Request: " << boost::lexical_cast<std::string>(adaptor_.remote_endpoint()) << " " << this << " HTTP/" << parser_.http_major << "." << parser_.http_minor << ' '
@@ -7805,6 +9093,7 @@ namespace crow
 
                 ctx_ = detail::context<Middlewares...>();
                 req.middleware_context = (void*)&ctx_;
+                req.io_service = &adaptor_.get_io_service();
                 detail::middleware_call_helper<0, decltype(ctx_), decltype(*middlewares_), Middlewares...>(*middlewares_, req, res, ctx_);
 
                 if (!res.completed_)
@@ -7867,6 +9156,9 @@ namespace crow
                 {401, "HTTP/1.1 401 Unauthorized\r\n"},
                 {403, "HTTP/1.1 403 Forbidden\r\n"},
                 {404, "HTTP/1.1 404 Not Found\r\n"},
+                {413, "HTTP/1.1 413 Payload Too Large\r\n"},
+                {422, "HTTP/1.1 422 Unprocessable Entity\r\n"},
+                {429, "HTTP/1.1 429 Too Many Requests\r\n"},
 
                 {500, "HTTP/1.1 500 Internal Server Error\r\n"},
                 {501, "HTTP/1.1 501 Not Implemented\r\n"},
@@ -7929,7 +9221,7 @@ namespace crow
             }
             if (add_keep_alive_)
             {
-                static std::string keep_alive_tag = "Connetion: Keep-Alive";
+                static std::string keep_alive_tag = "Connection: Keep-Alive";
                 buffers_.emplace_back(keep_alive_tag.data(), keep_alive_tag.size());
                 buffers_.emplace_back(crlf.data(), crlf.size());
             }
@@ -7939,7 +9231,6 @@ namespace crow
             buffers_.emplace_back(res_body_copy_.data(), res_body_copy_.size());
 
             do_write();
-            res.clear();
 
             if (need_to_start_read_after_complete_)
             {
@@ -7961,7 +9252,7 @@ namespace crow
                     if (!ec)
                     {
                         bool ret = parser_.feed(buffer_.data(), bytes_transferred);
-                        if (ret && adaptor_.is_open() && !close_connection_)
+                        if (ret && adaptor_.is_open())
                         {
                             error_while_reading = false;
                         }
@@ -7975,6 +9266,14 @@ namespace crow
                         is_reading = false;
                         CROW_LOG_DEBUG << this << " from read(1)";
                         check_destroy();
+                    }
+                    else if (close_connection_)
+                    {
+                        cancel_deadline_timer();
+                        parser_.done();
+                        is_reading = false;
+                        check_destroy();
+                        // adaptor will close after write
                     }
                     else if (!need_to_call_after_handlers_)
                     {
@@ -7994,9 +9293,10 @@ namespace crow
             //auto self = this->shared_from_this();
             is_writing = true;
             boost::asio::async_write(adaptor_.socket(), buffers_, 
-                [&](const boost::system::error_code& ec, std::size_t bytes_transferred)
+                [&](const boost::system::error_code& ec, std::size_t /*bytes_transferred*/)
                 {
                     is_writing = false;
+                    res.clear();
                     res_body_copy_.clear();
                     if (!ec)
                     {
@@ -8031,7 +9331,7 @@ namespace crow
             timer_queue.cancel(timer_cancel_key_);
         }
 
-        void start_deadline(int timeout = 5)
+        void start_deadline(/*int timeout = 5*/)
         {
             cancel_deadline_timer();
             
@@ -8087,6 +9387,7 @@ namespace crow
 
 #pragma once
 
+#include <chrono>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/asio.hpp>
 #ifdef CROW_ENABLE_SSL
@@ -8110,20 +9411,40 @@ namespace crow
 {
     using namespace boost;
     using tcp = asio::ip::tcp;
-    
+
     template <typename Handler, typename Adaptor = SocketAdaptor, typename ... Middlewares>
     class Server
     {
     public:
-        Server(Handler* handler, uint16_t port, std::tuple<Middlewares...>* middlewares = nullptr, uint16_t concurrency = 1, typename Adaptor::context* adaptor_ctx = nullptr)
-            : acceptor_(io_service_, tcp::endpoint(asio::ip::address(), port)), 
+    Server(Handler* handler, std::string bindaddr, uint16_t port, std::tuple<Middlewares...>* middlewares = nullptr, uint16_t concurrency = 1, typename Adaptor::context* adaptor_ctx = nullptr)
+            : acceptor_(io_service_, tcp::endpoint(boost::asio::ip::address::from_string(bindaddr), port)),
             signals_(io_service_, SIGINT, SIGTERM),
-            handler_(handler), 
+            tick_timer_(io_service_),
+            handler_(handler),
             concurrency_(concurrency),
             port_(port),
+            bindaddr_(bindaddr),
             middlewares_(middlewares),
             adaptor_ctx_(adaptor_ctx)
         {
+        }
+
+        void set_tick_function(std::chrono::milliseconds d, std::function<void()> f)
+        {
+            tick_interval_ = d;
+            tick_function_ = f;
+        }
+
+        void on_tick()
+        {
+            tick_function_();
+            tick_timer_.expires_from_now(boost::posix_time::milliseconds(tick_interval_.count()));
+            tick_timer_.async_wait([this](const boost::system::error_code& ec)
+                    {
+                        if (ec)
+                            return;
+                        on_tick();
+                    });
         }
 
         void run()
@@ -8137,9 +9458,10 @@ namespace crow
             timer_queue_pool_.resize(concurrency_);
 
             std::vector<std::future<void>> v;
+            std::atomic<int> init_count(0);
             for(uint16_t i = 0; i < concurrency_; i ++)
                 v.push_back(
-                        std::async(std::launch::async, [this, i]{
+                        std::async(std::launch::async, [this, i, &init_count]{
 
                             // thread local date string get function
                             auto last = std::chrono::steady_clock::now();
@@ -8150,7 +9472,7 @@ namespace crow
                                 auto last_time_t = time(0);
                                 tm my_tm;
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) or defined(__MINGW32__)
                                 gmtime_s(&my_tm, &last_time_t);
 #else
                                 gmtime_r(&last_time_t, &my_tm);
@@ -8188,20 +9510,45 @@ namespace crow
                             };
                             timer.async_wait(handler);
 
-                            io_service_pool_[i]->run();
+                            init_count ++;
+                            while(1)
+                            {
+                                try 
+                                {
+                                    if (io_service_pool_[i]->run() == 0)
+                                    {
+                                        // when io_service.run returns 0, there are no more works to do.
+                                        break;
+                                    }
+                                } catch(std::exception& e)
+                                {
+                                    CROW_LOG_ERROR << "Worker Crash: An uncaught exception occurred: " << e.what();
+                                }
+                            }
                         }));
-            CROW_LOG_INFO << server_name_ << " server is running, local port " << port_;
+
+            if (tick_function_ && tick_interval_.count() > 0) 
+            {
+                tick_timer_.expires_from_now(boost::posix_time::milliseconds(tick_interval_.count()));
+                tick_timer_.async_wait([this](const boost::system::error_code& ec)
+                        {
+                            if (ec)
+                                return;
+                            on_tick();
+                        });
+            }
+
+            CROW_LOG_INFO << server_name_ << " server is running at " << bindaddr_ <<":" << port_
+                          << " using " << concurrency_ << " threads";
+            CROW_LOG_INFO << "Call `app.loglevel(crow::LogLevel::Warning)` to hide Info level logs.";
 
             signals_.async_wait(
-                [&](const boost::system::error_code& error, int signal_number){
+                [&](const boost::system::error_code& /*error*/, int /*signal_number*/){
                     stop();
                 });
 
-            for (int i = 0; i < concurrency_; i++)
-            {
-                while (timer_queue_pool_[i] == nullptr)
-                    std::this_thread::yield();
-            }
+            while(concurrency_ != init_count)
+                std::this_thread::yield();
 
             do_accept();
 
@@ -8235,7 +9582,7 @@ namespace crow
                 is, handler_, server_name_, middlewares_,
                 get_cached_date_str_pool_[roundrobin_index_], *timer_queue_pool_[roundrobin_index_],
                 adaptor_ctx_);
-            acceptor_.async_accept(p->socket(), 
+            acceptor_.async_accept(p->socket(),
                 [this, p, &is](boost::system::error_code ec)
                 {
                     if (!ec)
@@ -8244,6 +9591,10 @@ namespace crow
                         {
                             p->start();
                         });
+                    }
+                    else
+                    {
+                        delete p;
                     }
                     do_accept();
                 });
@@ -8256,12 +9607,17 @@ namespace crow
         std::vector<std::function<std::string()>> get_cached_date_str_pool_;
         tcp::acceptor acceptor_;
         boost::asio::signal_set signals_;
+        boost::asio::deadline_timer tick_timer_;
 
         Handler* handler_;
         uint16_t concurrency_{1};
         std::string server_name_ = "Crow/0.1";
         uint16_t port_;
+        std::string bindaddr_;
         unsigned int roundrobin_index_{};
+
+        std::chrono::milliseconds tick_interval_;
+        std::function<void()> tick_function_;
 
         std::tuple<Middlewares...>* middlewares_;
 
@@ -8277,6 +9633,7 @@ namespace crow
 
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <functional>
 #include <memory>
@@ -8284,11 +9641,12 @@ namespace crow
 #include <cstdint>
 #include <type_traits>
 #include <thread>
+#include <condition_variable>
 
 
 
 
- 
+
 
 
 
@@ -8325,6 +9683,12 @@ namespace crow
         {
         }
 
+		template <typename Adaptor> 
+        void handle_upgrade(const request& req, response& res, Adaptor&& adaptor)
+        {
+            router_.handle_upgrade(req, res, adaptor);
+        }
+
         void handle(const request& req, response& res)
         {
             router_.handle(req, res);
@@ -8348,6 +9712,12 @@ namespace crow
             return *this;
         }
 
+        self_t& bindaddr(std::string bindaddr)
+        {
+            bindaddr_ = bindaddr;
+            return *this;
+        }
+
         self_t& multithreaded()
         {
             return concurrency(std::thread::hardware_concurrency());
@@ -8366,20 +9736,45 @@ namespace crow
             router_.validate();
         }
 
+        void notify_server_start()
+        {
+            std::unique_lock<std::mutex> lock(start_mutex_);
+            server_started_ = true;
+            cv_started_.notify_all();
+        }
+
         void run()
         {
             validate();
 #ifdef CROW_ENABLE_SSL
             if (use_ssl_)
             {
-                ssl_server_t server(this, port_, &middlewares_, concurrency_, &ssl_context_);
-                server.run();
+                ssl_server_ = std::move(std::unique_ptr<ssl_server_t>(new ssl_server_t(this, bindaddr_, port_, &middlewares_, concurrency_, &ssl_context_)));
+                ssl_server_->set_tick_function(tick_interval_, tick_function_);
+                notify_server_start();
+                ssl_server_->run();
             }
             else
 #endif
             {
-                server_t server(this, port_, &middlewares_, concurrency_, nullptr);
-                server.run();
+                server_ = std::move(std::unique_ptr<server_t>(new server_t(this, bindaddr_, port_, &middlewares_, concurrency_, nullptr)));
+                server_->set_tick_function(tick_interval_, tick_function_);
+                notify_server_start();
+                server_->run();
+            }
+        }
+
+        void stop()
+        {
+#ifdef CROW_ENABLE_SSL
+            if (use_ssl_)
+            {
+                ssl_server_->stop();
+            }
+            else
+#endif
+            {
+                server_->stop();
             }
         }
 
@@ -8387,6 +9782,12 @@ namespace crow
         {
             CROW_LOG_DEBUG << "Routing:";
             router_.debug_print();
+        }
+
+        self_t& loglevel(crow::LogLevel level)
+        {
+            crow::logger::setLogLevel(level);
+            return *this;
         }
 
 #ifdef CROW_ENABLE_SSL
@@ -8430,23 +9831,23 @@ namespace crow
 
 #else
         template <typename T, typename ... Remain>
-        self_t& ssl_file(T&& t, Remain&&...)
+        self_t& ssl_file(T&&, Remain&&...)
         {
             // We can't call .ssl() member function unless CROW_ENABLE_SSL is defined.
             static_assert(
                     // make static_assert dependent to T; always false
-                    std::is_base_of<T, void>::value, 
+                    std::is_base_of<T, void>::value,
                     "Define CROW_ENABLE_SSL to enable ssl support.");
             return *this;
         }
 
         template <typename T>
-        self_t& ssl(T&& ctx)
+        self_t& ssl(T&&)
         {
             // We can't call .ssl() member function unless CROW_ENABLE_SSL is defined.
             static_assert(
                     // make static_assert dependent to T; always false
-                    std::is_base_of<T, void>::value, 
+                    std::is_base_of<T, void>::value,
                     "Define CROW_ENABLE_SSL to enable ssl support.");
             return *this;
         }
@@ -8468,18 +9869,92 @@ namespace crow
             return utility::get_element_by_type<T, Middlewares...>(middlewares_);
         }
 
+        template <typename Duration, typename Func>
+        self_t& tick(Duration d, Func f) {
+            tick_interval_ = std::chrono::duration_cast<std::chrono::milliseconds>(d);
+            tick_function_ = f;
+            return *this;
+        }
+
+        void wait_for_server_start()
+        {
+            std::unique_lock<std::mutex> lock(start_mutex_);
+            if (server_started_)
+                return;
+            cv_started_.wait(lock);
+        }
+
     private:
         uint16_t port_ = 80;
         uint16_t concurrency_ = 1;
-
+        std::string bindaddr_ = "0.0.0.0";
         Router router_;
 
+        std::chrono::milliseconds tick_interval_;
+        std::function<void()> tick_function_;
+
         std::tuple<Middlewares...> middlewares_;
+
+#ifdef CROW_ENABLE_SSL
+        std::unique_ptr<ssl_server_t> ssl_server_;
+#endif
+        std::unique_ptr<server_t> server_;
+
+        bool server_started_{false};
+        std::condition_variable cv_started_;
+        std::mutex start_mutex_;
     };
     template <typename ... Middlewares>
     using App = Crow<Middlewares...>;
     using SimpleApp = Crow<>;
-};
+}
+
+
+
+#pragma once
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
