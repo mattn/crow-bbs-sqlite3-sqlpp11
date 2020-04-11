@@ -1,0 +1,3 @@
+[submodule "sqlpp11"]
+	path = sqlpp11
+	url = https://github.com/rbock/sqlpp11
